@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Librería Adrián - Acceso</title>
+    <!-- GOOGLE FONTS FOR LUXURY TYPOGRAPHY -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="Estilos/main.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    
+    <style>
+        .login-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(circle at top right, rgba(229, 169, 60, 0.1) 0%, var(--bg-primary) 70%);
+            padding: 2rem;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 480px;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-lg);
+            padding: 3rem;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            transition: var(--transition-normal);
+        }
+        .login-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-gold), #b37d1b);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        .login-logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-gold), #b37d1b);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-gold);
+            font-size: 2.5rem;
+            color: #12161a;
+        }
+        .login-header h1 {
+            font-family: var(--font-serif);
+            font-size: 2rem;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+        .login-header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .form-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .input-icon {
+            position: absolute;
+            left: 1.2rem;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            transition: var(--transition-fast);
+        }
+        .form-input {
+            width: 100%;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 1rem 1.2rem 1rem 3rem;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        .form-input:focus {
+            border-color: var(--accent-gold);
+            box-shadow: 0 0 0 3px var(--accent-gold-glow);
+        }
+        .form-input:focus + .input-icon {
+            color: var(--accent-gold);
+        }
+        .form-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            font-size: 0.88rem;
+        }
+        .remember-me {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+        }
+        .remember-me input {
+            cursor: pointer;
+            accent-color: var(--accent-gold);
+        }
+        .forgot-pass {
+            color: var(--accent-gold);
+            transition: var(--transition-fast);
+        }
+        .forgot-pass:hover {
+            color: var(--accent-gold-hover);
+            text-decoration: underline;
+        }
+        .submit-btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent-gold), #b37d1b);
+            color: #12161a;
+            font-weight: 700;
+            font-size: 1rem;
+            padding: 1rem;
+            border-radius: var(--border-radius-md);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.8rem;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            margin-bottom: 1.5rem;
+        }
+        .submit-btn:hover {
+            background: linear-gradient(135deg, var(--accent-gold-hover), #ca8e20);
+            box-shadow: var(--shadow-gold);
+            transform: translateY(-1px);
+        }
+        .submit-btn:active {
+            transform: translateY(1px);
+        }
+        .switch-view {
+            text-align: center;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .switch-link {
+            color: var(--accent-gold);
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-fast);
+        }
+        .switch-link:hover {
+            color: var(--accent-gold-hover);
+            text-decoration: underline;
+        }
+        /* Alertas de error/éxito */
+        .alert {
+            padding: 0.8rem 1.2rem;
+            border-radius: var(--border-radius-sm);
+            font-size: 0.88rem;
+            margin-bottom: 1.5rem;
+            display: none;
+            align-items: center;
+            gap: 0.8rem;
+        }
+        .alert-error {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+        .alert-success {
+            background-color: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #4ade80;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="login-body">
+
+    <div class="login-card">
+        <!-- Logo -->
+        <div class="login-logo">
+            <i class="fas fa-book-open"></i>
+        </div>
+
+        <div class="login-header">
+            <h1 id="view-title">Iniciar Sesión</h1>
+            <p id="view-subtitle">Accede a tu biblioteca personal en Librería Adrián</p>
+        </div>
+
+        <!-- Alert messages -->
+        <div id="alert-box" class="alert">
+            <i class="fas fa-exclamation-circle" id="alert-icon"></i>
+            <span id="alert-text"></span>
+        </div>
+
+        <!-- Formulario -->
+        <form id="auth-form">
+            <!-- Campo Nombre (sólo visible para registro) -->
+            <div class="form-group hidden" id="group-name">
+                <label class="form-label" for="input-name">Nombre Completo</label>
+                <div class="input-wrapper">
+                    <input type="text" id="input-name" class="form-input" placeholder="Tu nombre" />
+                    <i class="fas fa-user input-icon"></i>
+                </div>
+            </div>
+
+            <!-- Email -->
+            <div class="form-group">
+                <label class="form-label" for="input-email">Correo Electrónico</label>
+                <div class="input-wrapper">
+                    <input type="email" id="input-email" class="form-input" placeholder="ejemplo@correo.com" required autocomplete="email" />
+                    <i class="fas fa-envelope input-icon"></i>
+                </div>
+            </div>
+
+            <!-- Contraseña -->
+            <div class="form-group">
+                <label class="form-label" for="input-password">Contraseña</label>
+                <div class="input-wrapper">
+                    <input type="password" id="input-password" class="form-input" placeholder="••••••••" required autocomplete="current-password" />
+                    <i class="fas fa-lock input-icon"></i>
+                </div>
+            </div>
+
+            <!-- Opciones extra de Login -->
+            <div class="form-options" id="extra-options">
+                <label class="remember-me">
+                    <input type="checkbox" id="remember-session"> Recordarme
+                </label>
+                <a href="#" class="forgot-pass">¿Olvidaste tu contraseña?</a>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">
+                <span id="btn-text">Ingresar</span>
+                <i class="fas fa-sign-in-alt"></i>
+            </button>
+        </form>
+
+        <div class="switch-view">
+            <span id="switch-text">¿No tienes una cuenta?</span>
+            <span class="switch-link" id="switch-link">Regístrate</span>
+        </div>
+    </div>
+
+    <!-- Script de lógica -->
+    <script src="login.js"></script>
+</body>
+</html>
