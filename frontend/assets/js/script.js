@@ -51,7 +51,10 @@ async function cargarDatosPerfil(userId) {
   const registroEl = document.getElementById('profile-registro');
   
   try {
-    const response = await fetch(`http://localhost:3000/api/usuarios/${userId}`);
+    const API_BASE = ['localhost', '127.0.0.1'].includes(location.hostname)
+      ? 'http://localhost:3000'
+      : 'https://libreria-andres-api.onrender.com';
+    const response = await fetch(`${API_BASE}/api/usuarios/${userId}`);
     if (!response.ok) {
       throw new Error('Error al consultar datos del usuario');
     }

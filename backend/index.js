@@ -5,7 +5,7 @@ import config from './app/config/environments/index.js';
 import { verificarConexion } from './app/config/db.js';
 
 const app = express();
-app.use(cors()); // o app.use(cors({ origin: 'https://tudominio.com' }));
+app.use(cors({ origin: ['https://libreria-andres.onrender.com', 'http://localhost:5500', 'http://127.0.0.1:5500'] }));
 const PORT = config.PORT;  
 
 app.use(express.json());

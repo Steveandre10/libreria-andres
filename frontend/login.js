@@ -8,7 +8,10 @@
  * URL base de la API del backend para las operaciones de usuarios.
  * @type {string}
  */
-const API_URL = 'http://localhost:3000/api/usuarios';
+const API_BASE = ['localhost', '127.0.0.1'].includes(location.hostname)
+  ? 'http://localhost:3000'
+  : 'https://libreria-andres-api.onrender.com';
+const API_URL = `${API_BASE}/api/usuarios`;
 
 // Elementos del DOM del formulario de autenticación
 const authForm = document.getElementById('auth-form');

@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import config from './environments/index.js';
-
+import fs from 'fs';
 /**
  * Pool de conexiones a la base de datos MySQL.
  * Utiliza promesas para el manejo asíncrono de consultas.
@@ -15,7 +15,8 @@ const pool = mysql.createPool({
   port: config.DB_PORT,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+    ssl: process.env.DB_CA_PATH ? { ca: fs.readFileSync(process.env.DB_CA_PATH) } : undefined
 });
 
 export default pool;
