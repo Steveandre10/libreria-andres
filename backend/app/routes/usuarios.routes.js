@@ -5,8 +5,10 @@ import {
   obtenerUsuario,
   crearUsuario,
   eliminarUsuario,
-  loginUsuario
+  loginUsuario,
+  actualizarRolUsuario
 } from '../controllers/usuarios.controller.js';
+import { verificarToken, requerirAdmin } from '../middlewares/auth.middleware.js';
 
 /**
  * Enrutador Express para gestionar los endpoints relacionados con la entidad Usuarios.
@@ -16,9 +18,9 @@ const router = express.Router();
 
 /**
  * GET /api/usuarios/
- * Lista todos los usuarios.
+ * Lista todos los usuarios (Solo para Administradores / Dueños).
  */
-router.get('/', listarUsuarios);
+router.get('/', verificarToken, requerirAdmin, listarUsuarios);
 
 /**
  * GET /api/usuarios/:id
@@ -28,20 +30,26 @@ router.get('/:id', obtenerUsuario);
 
 /**
  * POST /api/usuarios/
- * Registra o crea un nuevo usuario.
+ * Registra un usuario (cliente o creado por admin).
  */
 router.post('/', crearUsuario);
 
 /**
  * POST /api/usuarios/login
- * Permite el inicio de sesión y retorna un token JWT de autenticación.
+ * Permite el inicio de sesión y retorna un token JWT de autenticación con el rol.
  */
 router.post('/login', loginUsuario);
 
 /**
- * DELETE /api/usuarios/:id
- * Elimina un usuario del sistema por su ID.
+ * PUT /api/usuarios/:id/rol
+ * Cambia el rol de un usuario ('usuario' o 'admin'). Solo para Administradores.
  */
-router.delete('/:id', eliminarUsuario);
+router.put('/:id/rol', verificarToken, requerirAdmin, actualizarRolUsuario);
+
+/**
+ * DELETE /api/usuarios/:id
+ * Elimina un usuario del sistema por su ID (Solo Administradores).
+ */
+router.delete('/:id', verificarToken, requerirAdmin, eliminarUsuario);
 
 export default router;

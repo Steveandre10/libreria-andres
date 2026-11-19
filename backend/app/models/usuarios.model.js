@@ -46,16 +46,30 @@ export const getUsuarioByEmail = async (email) => {
  * @param {Object} usuario - Datos del nuevo usuario.
  * @param {string} usuario.nombre - Nombre del usuario.
  * @param {string} usuario.email - Correo electrónico único del usuario.
- * @param {string} usuario.password - Contraseña (texto plano).
+ * @param {string} usuario.password - Contraseña (hasheada con bcrypt).
+ * @param {string} [usuario.rol='usuario'] - Rol del usuario ('usuario' o 'admin').
  * @returns {Promise<Object>} Datos del usuario registrado con su insertId asignado.
  */
 export const crearUsuario = async (usuario) => {
-  const { nombre, email, password } = usuario;
+  const { nombre, email, password, rol = 'usuario' } = usuario;
   const [result] = await pool.query(
-    'INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)',
-    [nombre, email, password]
+    'INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)',
+    [nombre, email, password, rol]
   );
-  return { id: result.insertId, nombre, email };
+  return { id: result.insertId, nombre, email, rol };
+};
+
+/**
+ * Actualiza la contraseña hasheada de un usuario.
+ * 
+ * @async
+ * @function updatePasswordModel
+ * @param {number|string} id - ID del usuario.
+ * @param {string} newHash - Nueva contraseña hasheada con bcrypt.
+ * @returns {Promise<void>}
+ */
+export const updatePasswordModel = async (id, newHash) => {
+  await pool.query('UPDATE usuarios SET password = ? WHERE id = ?', [newHash, id]);
 };
 
 /**
@@ -68,4 +82,17 @@ export const crearUsuario = async (usuario) => {
  */
 export const eliminarUsuario = async (id) => {
   await pool.query('DELETE FROM usuarios WHERE id = ?', [id]);
+};
+
+/**
+ * Cambia el rol de un usuario existente ('usuario' o 'admin').
+ * 
+ * @async
+ * @function cambiarRolUsuario
+ * @param {number|string} id - ID del usuario.
+ * @param {string} nuevoRol - 'usuario' o 'admin'.
+ * @returns {Promise<void>}
+ */
+export const cambiarRolUsuario = async (id, nuevoRol) => {
+  await pool.query('UPDATE usuarios SET rol = ? WHERE id = ?', [nuevoRol, id]);
 };

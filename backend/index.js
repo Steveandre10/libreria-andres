@@ -1,11 +1,26 @@
 import express from 'express';
-import routeUsuario from './app/routes/usuarios.routes.js';
 import cors from 'cors';
+import routeUsuario from './app/routes/usuarios.routes.js';
+import routeLibros from './app/routes/libros.routes.js';
+import routeResenas from './app/routes/resenas.routes.js';
 import config from './app/config/environments/index.js';
 import { verificarConexion } from './app/config/db.js';
+import { inicializarBaseDeDatos } from './app/config/initDb.js';
 
 const app = express();
-app.use(cors({ origin: ['https://libreria-andres.onrender.com', 'http://localhost:5500', 'http://127.0.0.1:5500'] }));
+
+// Configuración flexible de CORS para permitir Render y cualquier puerto de localhost durante desarrollo
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || origin === 'https://libreria-andres.onrender.com') {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permisivo para pruebas
+    }
+  },
+  credentials: true
+}));
+
 const PORT = config.PORT;  
 
 app.use(express.json());
@@ -14,7 +29,7 @@ app.use(express.json());
 const destinoMysql = `${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}`;
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Servidor funcionando (Librería Andrés!)' });
+  res.json({ message: 'Servidor funcionando (Librería Andrés!)', version: '2.0.0' });
 });
 
 /**
@@ -37,18 +52,22 @@ app.get('/api/health/db', async (req, res) => {
   }
 });
 
+// Rutas principales de la API
 app.use('/api/usuarios', routeUsuario);
+app.use('/api/libros', routeLibros);
+app.use('/api/resenas', routeResenas);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
   console.log(`Entorno: ${process.env.NODE_ENV || 'developer'} | MySQL configurado en ${destinoMysql} (usuario: ${config.DB_USER})`);
 
-  // El pool es perezoso: sin esta comprobación el arranque se vería
-  // idéntico con o sin base de datos alcanzable.
+  // Verificar conexión e inicializar tablas/datos si es necesario
   try {
     await verificarConexion();
     console.log(`MySQL conectado correctamente en ${destinoMysql}`);
+    await inicializarBaseDeDatos();
   } catch (error) {
     console.error(`MySQL SIN conexión en ${destinoMysql} -> [${error.code}] ${error.message}`);
   }
 });
+

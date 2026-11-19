@@ -1,5 +1,14 @@
-import { getAllUsuarios, getUsuarioById, crearUsuario as crearUsuarioModel, eliminarUsuario as eliminarUsuarioModel, getUsuarioByEmail } from '../models/usuarios.model.js';
+import {
+  getAllUsuarios,
+  getUsuarioById,
+  crearUsuario as crearUsuarioModel,
+  eliminarUsuario as eliminarUsuarioModel,
+  getUsuarioByEmail,
+  updatePasswordModel,
+  cambiarRolUsuario
+} from '../models/usuarios.model.js';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import config from '../config/environments/index.js';
 
 /**
@@ -15,7 +24,12 @@ import config from '../config/environments/index.js';
 export const listarUsuarios = async (req, res) => {
   try {
     const usuarios = await getAllUsuarios();
-    res.json({ usuarios });
+    // Excluir hash de contraseñas por seguridad
+    const safeUsuarios = usuarios.map(u => {
+      const { password, ...resto } = u;
+      return resto;
+    });
+    res.json({ usuarios: safeUsuarios });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -38,16 +52,15 @@ export const obtenerUsuario = async (req, res) => {
     if (!rows || rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
-    res.json({ usuario: rows[0] });
+    const { password, ...usuarioSeguro } = rows[0];
+    res.json({ usuario: usuarioSeguro });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
 /**
- * Controlador para crear/registrar un nuevo usuario.
- * Valida que los datos requeridos (nombre, email, password) estén presentes.
- * Retorna el usuario creado con su ID generado con código de estado 201.
+ * Controlador para crear/registrar un nuevo usuario con contraseña cifrada (Bcrypt).
  * 
  * @async
  * @function crearUsuario
@@ -61,7 +74,40 @@ export const crearUsuario = async (req, res) => {
     if (!usuario || !usuario.nombre || !usuario.email || !usuario.password) {
       return res.status(400).json({ error: 'Faltan datos: nombre, email y password son requeridos' });
     }
-    const newUser = await crearUsuarioModel(usuario);
+
+    // Comprobar si el correo ya existe
+    const existente = await getUsuarioByEmail(usuario.email);
+    if (existente && existente.length > 0) {
+      return res.status(409).json({ error: 'El correo electrónico ya está registrado' });
+    }
+
+    // Hashear la contraseña con bcrypt (10 rounds de salt)
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(usuario.password, salt);
+
+    // Solo un administrador autenticado puede crear cuentas con rol 'admin'.
+    // El registro público siempre crea cuentas de cliente.
+    let rol = 'usuario';
+    if (usuario.rol === 'admin') {
+      const token = (req.headers['authorization'] || '').split(' ')[1];
+      let solicitante = null;
+      try {
+        solicitante = token ? jwt.verify(token, config.JWT_SECRET) : null;
+      } catch {
+        solicitante = null;
+      }
+      if (!solicitante || solicitante.rol !== 'admin') {
+        return res.status(403).json({ error: 'Solo un administrador puede crear cuentas de administrador' });
+      }
+      rol = 'admin';
+    }
+
+    const newUser = await crearUsuarioModel({
+      ...usuario,
+      password: hashedPassword,
+      rol
+    });
+
     res.status(201).json(newUser);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -89,9 +135,34 @@ export const eliminarUsuario = async (req, res) => {
 };
 
 /**
+ * Controlador para actualizar el rol de un usuario ('usuario' o 'admin').
+ * Requiere permisos de administrador.
+ * 
+ * @async
+ * @function actualizarRolUsuario
+ * @param {import('express').Request} req - Objeto de petición Express.
+ * @param {import('express').Response} res - Objeto de respuesta Express.
+ */
+export const actualizarRolUsuario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rol } = req.body;
+
+    if (!['usuario', 'admin'].includes(rol)) {
+      return res.status(400).json({ error: 'Rol no válido. Debe ser "usuario" o "admin"' });
+    }
+
+    await cambiarRolUsuario(id, rol);
+    res.json({ message: `Rol actualizado correctamente a "${rol}"` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
  * Controlador para iniciar sesión de un usuario (Login).
- * Valida que el email y la contraseña coincidan con los de la BD.
- * Genera y firma un token JWT válido por 24 horas y retorna los datos del usuario.
+ * Valida la contraseña mediante bcrypt.compare() con auto-migración de texto plano a bcrypt.
+ * Genera y firma un token JWT válido por 24 horas y retorna los datos y rol del usuario.
  * 
  * @async
  * @function loginUsuario
@@ -110,14 +181,40 @@ export const loginUsuario = async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas (usuario no encontrado)' });
     }
     const usuario = rows[0];
-    // Comparación directa de contraseñas (para este entorno)
-    if (usuario.password !== password) {
+
+    // Verificación segura con Bcrypt
+    let isMatch = false;
+    try {
+      isMatch = await bcrypt.compare(password, usuario.password);
+    } catch {
+      isMatch = false;
+    }
+
+    // Compatibilidad retroactiva: si estaba en texto plano, permitir login y actualizar a bcrypt
+    if (!isMatch && usuario.password === password) {
+      isMatch = true;
+      try {
+        const salt = await bcrypt.genSalt(10);
+        const newHash = await bcrypt.hash(password, salt);
+        await updatePasswordModel(usuario.id, newHash);
+        console.log(`✓ Contraseña del usuario ${usuario.email} migrada automáticamente a bcrypt.`);
+      } catch (errMigracion) {
+        console.error('Error migrando contraseña antigua a bcrypt:', errMigracion);
+      }
+    }
+
+    if (!isMatch) {
       return res.status(401).json({ error: 'Credenciales inválidas (contraseña incorrecta)' });
     }
     
-    // Generar token JWT
+    // Generar token JWT con rol incluido
     const token = jwt.sign(
-      { id: usuario.id, email: usuario.email, nombre: usuario.nombre },
+      {
+        id: usuario.id,
+        email: usuario.email,
+        nombre: usuario.nombre,
+        rol: usuario.rol || 'usuario'
+      },
       config.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -129,6 +226,7 @@ export const loginUsuario = async (req, res) => {
         id: usuario.id,
         nombre: usuario.nombre,
         email: usuario.email,
+        rol: usuario.rol || 'usuario',
         telefono: usuario.telefono || null,
         direccion: usuario.direccion || null,
         fecha_registro: usuario.fecha_registro || null

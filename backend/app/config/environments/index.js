@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 const environment = process.env.NODE_ENV || 'developer';
 
 dotenv.config({
-  path: path.resolve(path.join(__dirname, `${environment}.env`))
+  path: path.resolve(path.join(__dirname, `${environment}.env`)),
+  override: true
 });
 
 const config = {
