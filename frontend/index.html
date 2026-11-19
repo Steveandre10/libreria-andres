@@ -1,156 +1,105 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Librería Adrián - Tu Espacio Literario</title>
-    <!-- GOOGLE FONTS FOR LUXURY TYPOGRAPHY -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="Estilos/main.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catálogo · Librería Andrés</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="stylesheet" href="Estilos/main.css" />
 </head>
 <body>
-  <!-- Contiene toda la información de la página -->
-  <div class="container">
-    
-    <!-- SIDEBAR CON BOTONES PARA NAVEGACIÓN -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-container">
-          <img src="Componentes Locales/LogoLibAndr.png" alt="Librería Adrián" class="sidebar-logo" />
+  <div class="app">
+    <nav id="rail" class="rail" data-page="catalogo"></nav>
+
+    <main class="work">
+      <header class="page-head">
+        <div>
+          <h1 id="welcome">Hola de nuevo</h1>
+          <p>Busca por título, autor o ISBN, o recorre el catálogo por género.</p>
         </div>
-        <h2>Librería Adrián</h2>
-      </div>
-      <!-- Menú de navegación principal -->
-      <nav class="sidebar-nav">
-        <a href="index.html" class="nav-item nav-home active">
-          <i class="fas fa-home"></i>
-          <span>Inicio</span>
-        </a>
-        <a href="profile.html" class="nav-item">
-          <i class="fas fa-user"></i>
-          <span>Mi perfil</span>
-        </a>
-        <a href="cart.html" class="nav-item">
-          <i class="fas fa-shopping-cart"></i>
-          <span>Mi carrito</span>
-        </a>
-        <a href="wishlist.html" class="nav-item nav-wishlist">
-          <i class="fas fa-heart"></i>
-          <span>Lista de deseos</span>
-        </a>
-        <a href="purchases.html" class="nav-item nav-purchases">
-          <i class="fas fa-box"></i>
-          <span>Mis compras</span>
-        </a>
-      </nav>
-      
-      <!-- Decoración elegante inferior para el Sidebar -->
-      <div class="sidebar-footer">
-        <p>Cultivando el saber</p>
-      </div>
-    </aside>
-    <!-- HEADER TOP BAR -->
-    <header class="header">
-      <div class="user-section">
-        <button class="user-avatar" title="Mi perfil">
-          <i class="fas fa-user-circle"></i>
-        </button>
-        <span class="user-name">Nombre de usuario Demo</span>
-      </div>
-      <div class="action-icons">
-        <a href="index.html" class="icon-btn" title="Inicio">
-          <i class="fas fa-home"></i>
-        </a>
-        <!-- Enlace al buzón de mensajes -->
-        <button class="icon-btn" title="Mensajes">
-          <i class="fas fa-envelope"></i>
-          <span class="badge">1</span>
-        </button>
-        <!-- Enlace al carrito de compras -->
-        <a href="cart.html" class="icon-btn" title="Carrito">
-          <i class="fas fa-shopping-cart"></i>
-        </a>
-        <!-- Botón que permite cerrar la sesión y volver al login -->
-        <a href="login.html" class="icon-btn logout-btn" title="Cerrar sesión">
-          <i class="fas fa-sign-out-alt"></i>
-        </a>
-      </div>
-    </header>
-    <!-- CONTENIDO PRINCIPAL -->
-    <main class="main-content">
-      
-      <!-- BIENVENIDA DINÁMICA -->
-      <div class="welcome-banner">
-        <div class="welcome-text">
-          <h1>¡Hola de nuevo, Demo!</h1>
-          <p>Descubre nuevas historias seleccionadas especialmente para ti hoy.</p>
-        </div>
-      </div>
-      <!-- SEARCH BAR -->
-      <div class="search-section">
-        <div class="search-container">
-          <i class="fas fa-search search-icon"></i>
-          <input type="text" placeholder="Buscar libro, Autor, Género..." />
-          <button class="search-btn"><i class="fas fa-sliders-h"></i> Filtrar</button>
-        </div>
-      </div>
-<!--  SECCIÓN DE RECOMENDADOS PARA EL USUARIO - CARDS CON INFORMACIÓN BÁSICA DEL LIBRO Y BOTÓN PARA VER MÁS DETALLES -->
-      <div class="section-title">
-        <h2>Recomendado para ti</h2>
-        <span class="divider"></span>
-      </div>
-      
-      <div class="card-container">
-        <!-- Muestra la información del libro -->
-        <div class="card">
-          <div class="info">
-            <div class="img-container">
-              <img src="componets/static/img/libro.webp" alt="Portada de Cien años de soledad" />
-              <span class="tag-genre">Realismo Mágico</span>
-            </div>
-            <div class="textos">
-              <div class="label-group">
-                <span class="label">Título</span>
-                <h3>Cien años de soledad</h3>
-              </div>
-              <div class="label-group">
-                <span class="label">Autor</span>
-                <p class="autor">Gabriel García Márquez</p>
-              </div>
-              <div class="label-group">
-                <span class="label">Valoración</span>
-                <div class="rating">
-                  <div class="stars-outer">
-                    <i class="far fa-star"></i>
-                    <i class="far fa-star"></i>
-                    <i class="far fa-star"></i>
-                    <i class="far fa-star"></i>
-                    <i class="far fa-star"></i>
-                    <div class="stars-inner">
-                      <i class="fas fa-star"></i>
-                      <i class="fas fa-star"></i>
-                      <i class="fas fa-star"></i>
-                      <i class="fas fa-star"></i>
-                      <i class="fas fa-star"></i>
-                    </div>
-                  </div>
-                  <span class="rating-number">4.9</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- Botón que redirige a la información detallada del libro -->
-          <a href="info-book.html" class="book-link">
-            <button class="button">Ver libro <i class="fas fa-arrow-right"></i></button>
+        <div class="actions">
+          <a href="admin.html#libros" id="btn-admin-new" class="btn btn-secondary" hidden>
+            <i class="fas fa-sliders" aria-hidden="true"></i> Administrar libros
+          </a>
+          <a href="cart.html" class="btn btn-primary cart-link">
+            <i class="fas fa-bag-shopping" aria-hidden="true"></i> Ver carrito
+            <span class="badge cart-count" hidden>0</span>
           </a>
         </div>
+      </header>
+
+      <div class="store-bar">
+        <label class="search">
+          <span class="sr-only">Buscar en el catálogo</span>
+          <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" id="search-input" class="input" placeholder="Buscar por título, autor, género o ISBN" autocomplete="off" />
+        </label>
+        <span class="meta" id="catalog-meta"></span>
       </div>
+
+      <div class="index-tabs" id="genre-tabs" role="tablist" aria-label="Géneros"></div>
+      <section class="drawer-panel" aria-live="polite">
+        <div class="book-grid" id="books-container">
+          <div class="book" aria-hidden="true"><div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+          <div class="book" aria-hidden="true"><div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+          <div class="book" aria-hidden="true"><div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+          <div class="book" aria-hidden="true"><div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+          <div class="book" aria-hidden="true"><div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+        </div>
+      </section>
     </main>
   </div>
+
+  <!-- FICHA DEL LIBRO (cajón lateral) -->
+  <div class="sheet" id="book-sheet" aria-hidden="true">
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <article class="ficha">
+        <header class="ficha-head">
+          <div class="ficha-call"><span id="detail-call"></span><span id="detail-isbn"></span></div>
+          <h2 id="detail-title"></h2>
+          <p id="detail-author"></p>
+          <button type="button" class="icon-btn sheet-close" data-close-sheet aria-label="Cerrar ficha"><i class="fas fa-xmark"></i></button>
+        </header>
+        <div class="ficha-body">
+          <div class="ficha-row">
+            <img id="detail-cover" class="ficha-cover" src="https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400" alt="" />
+            <dl class="ficha-facts">
+              <div><dt>Género</dt><dd id="detail-genre"></dd></div>
+              <div><dt>Valoración</dt><dd id="detail-rating"></dd></div>
+              <div><dt>Estado</dt><dd id="detail-status"></dd></div>
+              <div><dt>Precio</dt><dd id="detail-price" class="price"></dd></div>
+            </dl>
+          </div>
+          <p id="detail-desc" class="ficha-desc"></p>
+          <div style="display:flex; gap:8px; margin-top:18px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-lg" id="detail-add"><i class="fas fa-bag-shopping" aria-hidden="true"></i> Añadir al carrito</button>
+            <a class="btn btn-secondary btn-lg" id="detail-admin-edit" hidden><i class="fas fa-pen" aria-hidden="true"></i> Editar ficha</a>
+          </div>
+
+          <section class="ficha-section">
+            <h3>Reseñas de lectores</h3>
+            <div class="reviews" id="detail-reviews-list"></div>
+
+            <form class="review-form" id="form-add-review">
+              <div class="field">
+                <span class="field-label" id="rating-label">Tu calificación</span>
+                <div class="star-input" id="star-selector" role="radiogroup" aria-labelledby="rating-label"></div>
+              </div>
+              <label class="field">
+                <span class="field-label">Tu reseña</span>
+                <textarea id="review-comment" class="textarea" placeholder="¿Qué te pareció este libro?" required maxlength="500"></textarea>
+              </label>
+              <div><button type="submit" class="btn btn-secondary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Publicar reseña</button></div>
+            </form>
+          </section>
+        </div>
+      </article>
+    </div>
+  </div>
+
   <script src="assets/js/auth.js"></script>
   <script src="assets/js/script.js"></script>
 </body>

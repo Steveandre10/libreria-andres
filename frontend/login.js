@@ -45,25 +45,25 @@ switchLink.addEventListener('click', () => {
   clearAlert();
   
   if (isLoginView) {
-    viewTitle.textContent = 'Iniciar Sesión';
-    viewSubtitle.textContent = 'Accede a tu biblioteca personal en Librería Andrés';
+    viewTitle.textContent = 'Iniciar sesión';
+    viewSubtitle.textContent = 'Entra para ver el catálogo y tu carrito.';
     groupName.classList.add('hidden');
     inputName.removeAttribute('required');
     extraOptions.classList.remove('hidden');
     btnText.textContent = 'Ingresar';
     const icon = submitBtn.querySelector('i');
-    if (icon) icon.className = 'fas fa-sign-in-alt';
+    if (icon) icon.className = 'fas fa-arrow-right';
     switchText.textContent = '¿No tienes una cuenta?';
     switchLink.textContent = 'Regístrate';
   } else {
-    viewTitle.textContent = 'Crear Cuenta';
-    viewSubtitle.textContent = 'Únete y descubre un nuevo mundo de lecturas';
+    viewTitle.textContent = 'Crear cuenta';
+    viewSubtitle.textContent = 'Abre tu ficha de lector en un minuto.';
     groupName.classList.remove('hidden');
     inputName.setAttribute('required', 'true');
     extraOptions.classList.add('hidden');
-    btnText.textContent = 'Registrarse';
+    btnText.textContent = 'Crear cuenta';
     const icon = submitBtn.querySelector('i');
-    if (icon) icon.className = 'fas fa-user-plus';
+    if (icon) icon.className = 'fas fa-arrow-right';
     switchText.textContent = '¿Ya tienes una cuenta?';
     switchLink.textContent = 'Inicia sesión';
   }
@@ -134,7 +134,7 @@ authForm.addEventListener('submit', async (e) => {
       localStorage.setItem('token', data.token);
       localStorage.setItem('usuario', JSON.stringify(data.usuario));
       
-      showAlert('¡Ingreso exitoso! Redirigiendo...', 'success');
+      showAlert('Listo, entrando a la tienda…', 'success');
       setTimeout(() => {
         window.location.href = 'index.html';
       }, 1200);
@@ -160,7 +160,7 @@ authForm.addEventListener('submit', async (e) => {
         throw new Error(data.error || 'Error al registrar el usuario');
       }
       
-      showAlert('¡Cuenta creada con éxito! Iniciando sesión...', 'success');
+      showAlert('Cuenta creada. Entrando a la tienda…', 'success');
       
       // Inicio de sesión automático tras registro exitoso
       setTimeout(async () => {

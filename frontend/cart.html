@@ -1,110 +1,224 @@
-<!-- TEMPLATE HTML -- Estructura base para todas las páginas del sitio web de la Librería Adrián. Contiene el diseño común del sidebar, header y footer, así como la barra de búsqueda -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Librería Adrián - Tu Espacio Literario</title>
-    <!-- GOOGLE FONTS FOR LUXURY TYPOGRAPHY -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="Estilos/main.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi carrito · Librería Andrés</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="stylesheet" href="Estilos/main.css" />
 </head>
 <body>
-  <!-- Contiene toda la información de la página -->
-  <div class="container">
-    
-    <!-- SIDEBAR CON BOTONES PARA NAVEGACIÓN -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-container">
-          <img src="Componentes Locales/LogoLibAndr.png" alt="Librería Adrián" class="sidebar-logo" />
-        </div>
-        <h2>Librería Adrián</h2>
-      </div>
-      <!-- Menú de navegación principal -->
-      <nav class="sidebar-nav">
-        <a href="index.html" class="nav-item ">
-          <i class="fas fa-home"></i>
-          <span>Inicio</span>
-        </a>
-        <a href="profile.html" class="nav-item ">
-          <i class="fas fa-user"></i>
-          <span>Mi perfil</span>
-        </a>
-        <a href="cart.html" class="nav-item nav-cart active">
-          <i class="fas fa-shopping-cart"></i>
-          <span>Mi carrito</span>
-        </a>
-        <a href="wishlist.html" class="nav-item nav-wishlist">
-          <i class="fas fa-heart"></i>
-          <span>Lista de deseos</span>
-        </a>
-        <a href="purchases.html" class="nav-item nav-purchases">
-          <i class="fas fa-box"></i>
-          <span>Mis compras</span>
-        </a>
-      </nav>
-      
-      <!-- Decoración elegante inferior para el nav-item nav-home active"-->
-      <div class="sidebar-footer">
-        <p>Cultivando el saber</p>
-      </div>
-    </aside>
-    <!-- HEADER TOP BAR -->
-    <header class="header">
-      <div class="user-section">
-        <button class="user-avatar" title="Mi perfil">
-          <i class="fas fa-user-circle"></i>
-        </button>
-        <span class="user-name">Nombre de usuario Demo</span>
-      </div>
-      <div class="action-icons">
-        <a href="index.html" class="icon-btn" title="Inicio">
-          <i class="fas fa-home"></i>
-        </a>
-        <!-- Enlace al buzón de mensajes -->
-        <button class="icon-btn" title="Mensajes">
-          <i class="fas fa-envelope"></i>
-          <span class="badge">1</span>
-        </button>
-        <!-- Enlace al carrito de compras -->
-        <a href="cart.html" class="icon-btn" title="Carrito">
-          <i class="fas fa-shopping-cart"></i>
-        </a>
-        <!-- Botón que permite cerrar la sesión y volver al login -->
-        <a href="login.html" class="icon-btn logout-btn" title="Cerrar sesión">
-          <i class="fas fa-sign-out-alt"></i>
-        </a>
-      </div>
-    </header>
-    <!-- CONTENIDO PRINCIPAL -->
-    <main class="main-content">
+  <div class="app">
+    <nav id="rail" class="rail" data-page="carrito"></nav>
 
-      <!-- SEARCH BAR -->
-      <div class="search-section">
-        <div class="search-container">
-          <i class="fas fa-search search-icon"></i>
-          <input type="text" placeholder="Buscar libro, Autor, Género..." />
-          <button class="search-btn"><i class="fas fa-sliders-h"></i> Filtrar</button>
+    <main class="work">
+      <header class="page-head">
+        <div>
+          <h1>Mi carrito</h1>
+          <p id="cart-sub">Revisa tus libros antes de finalizar la compra.</p>
         </div>
-      </div>
-      <!--  SECCIÓN DE CARRO DE COMPRAS -->
-      <section class="cart-section">
-        <div class="cart-header">
-          <h2>Mi Carrito</h2>
-        </div>
-        <div class="cart-items">
-          <p class="empty-message">Tu carrito está vacío. ¡Añade libros desde la página de inicio para comenzar tu compra!</p>
-        </div>
-      </section>
+      </header>
+      <div id="cart-content"></div>
     </main>
   </div>
-  <!-- **FIN DE SECTION** -->
+
+  <!-- FINALIZAR COMPRA -->
+  <div class="modal-overlay" id="modal-checkout">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
+      <article class="ficha">
+        <header class="ficha-head">
+          <div class="ficha-call"><span>Pedido</span><span id="checkout-count"></span></div>
+          <h2 id="checkout-title">Finalizar compra</h2>
+          <p>Confirma a dónde enviamos tus libros.</p>
+          <button type="button" class="icon-btn sheet-close" onclick="closeModal('modal-checkout')" aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+        </header>
+        <div class="ficha-body">
+          <p class="note"><i class="fas fa-circle-info" aria-hidden="true"></i><span>Los pagos en línea aún no están activos: el pedido se registra sin cobro y coordinamos el pago contigo.</span></p>
+          <form id="form-checkout" class="form-grid">
+            <label class="field full">
+              <span class="field-label">Nombre de quien recibe</span>
+              <input type="text" id="order-name" class="input" required autocomplete="name" />
+            </label>
+            <label class="field">
+              <span class="field-label">Dirección de entrega</span>
+              <input type="text" id="order-address" class="input" placeholder="Calle 10 # 25-30" required autocomplete="street-address" />
+            </label>
+            <label class="field">
+              <span class="field-label">Teléfono</span>
+              <input type="tel" id="order-phone" class="input" placeholder="300 123 4567" required autocomplete="tel" />
+            </label>
+            <fieldset class="field full" style="border:0">
+              <legend class="field-label" style="margin-bottom:6px">Forma de pago</legend>
+              <div class="pay-options">
+                <label class="pay-option"><input type="radio" name="payment-method" value="tarjeta" checked /><i class="fas fa-credit-card" aria-hidden="true"></i> Tarjeta crédito o débito</label>
+                <label class="pay-option"><input type="radio" name="payment-method" value="nequi" /><i class="fas fa-mobile-screen" aria-hidden="true"></i> Nequi o Daviplata</label>
+                <label class="pay-option"><input type="radio" name="payment-method" value="efectivo" /><i class="fas fa-money-bill" aria-hidden="true"></i> Efectivo contra entrega</label>
+              </div>
+            </fieldset>
+            <div class="full" style="display:flex; justify-content:space-between; align-items:center; gap:16px; border-top:1px solid var(--line); padding-top:16px;">
+              <div><span class="field-label">Total</span><div class="price" id="checkout-total-val" style="font-size:1.4rem">$0.00</div></div>
+              <button type="submit" class="btn btn-primary btn-lg">Confirmar pedido</button>
+            </div>
+          </form>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- RECIBO -->
+  <div class="modal-overlay" id="modal-receipt">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="receipt-title" style="max-width:460px">
+      <article class="ficha receipt">
+        <header class="ficha-head">
+          <div class="ficha-call"><span id="receipt-id"></span><span id="receipt-date"></span></div>
+          <h2 id="receipt-title">Pedido registrado</h2>
+          <p>Te contactaremos para coordinar el pago y la entrega.</p>
+        </header>
+        <div class="ficha-body">
+          <dl>
+            <div><dt>Recibe</dt><dd id="receipt-name"></dd></div>
+            <div><dt>Libros</dt><dd id="receipt-items-count"></dd></div>
+            <div><dt>Total</dt><dd id="receipt-total"></dd></div>
+          </dl>
+          <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
+            <a href="index.html" class="btn btn-primary">Seguir comprando</a>
+            <a href="purchases.html" class="btn btn-secondary">Mis compras</a>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+
   <script src="assets/js/auth.js"></script>
-  <script src="assets/js/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      renderizarCarrito();
+
+      const user = window.getCurrentUser();
+      if (user) {
+        document.getElementById('order-name').value = user.nombre || '';
+        if (user.direccion) document.getElementById('order-address').value = user.direccion;
+        if (user.telefono) document.getElementById('order-phone').value = user.telefono;
+      }
+
+      document.getElementById('form-checkout').addEventListener('submit', (e) => {
+        e.preventDefault();
+        procesarPedido();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+      });
+    });
+
+    function totales(cart) {
+      const subtotal = cart.reduce((s, i) => s + (parseFloat(i.precio || 0) * (i.cantidad || 1)), 0);
+      const unidades = cart.reduce((s, i) => s + (i.cantidad || 1), 0);
+      return { subtotal, unidades };
+    }
+
+    function renderizarCarrito() {
+      const container = document.getElementById('cart-content');
+      const cart = window.getCart();
+      const esc = window.esc;
+
+      if (!cart.length) {
+        document.getElementById('cart-sub').textContent = 'Todavía no has elegido libros.';
+        container.innerHTML = `
+          <div class="panel"><div class="empty">
+            <i class="fas fa-bag-shopping" aria-hidden="true"></i>
+            <h2>Tu carrito está vacío</h2>
+            <p>Recorre el catálogo y añade los libros que quieras llevarte.</p>
+            <a href="index.html" class="btn btn-primary">Ir al catálogo</a>
+          </div></div>`;
+        return;
+      }
+
+      const { subtotal, unidades } = totales(cart);
+      document.getElementById('cart-sub').textContent = `${unidades} ${unidades === 1 ? 'libro' : 'libros'} en tu carrito.`;
+
+      container.innerHTML = `
+        <div class="cart-layout">
+          <section class="panel" aria-label="Libros en el carrito">
+            ${cart.map((item, index) => `
+              <div class="cart-item">
+                <img src="${esc(item.portada)}" alt="" onerror="this.src=window.PORTADA_DEFECTO" />
+                <div class="info">
+                  <h3>${esc(item.titulo)}</h3>
+                  <p>${esc(item.autor)}</p>
+                  <span class="unit">${window.formatPrecio(item.precio)} c/u</span>
+                </div>
+                <div class="qty" role="group" aria-label="Cantidad de ${esc(item.titulo)}">
+                  <button type="button" onclick="modificarCantidad(${index}, -1)" aria-label="Quitar uno"><i class="fas fa-minus"></i></button>
+                  <span>${item.cantidad || 1}</span>
+                  <button type="button" onclick="modificarCantidad(${index}, 1)" aria-label="Añadir uno"><i class="fas fa-plus"></i></button>
+                </div>
+                <span class="line-total">${window.formatPrecio((parseFloat(item.precio) || 0) * (item.cantidad || 1))}</span>
+                <button type="button" class="icon-btn danger" onclick="eliminarDelCarrito(${index})" aria-label="Quitar ${esc(item.titulo)} del carrito"><i class="fas fa-trash-can"></i></button>
+              </div>`).join('')}
+          </section>
+
+          <aside class="panel summary" aria-label="Resumen del pedido">
+            <div class="panel-head"><h2>Resumen</h2></div>
+            <div class="panel-body">
+              <div class="summary-row"><span>Subtotal</span><span>${window.formatPrecio(subtotal)}</span></div>
+              <div class="summary-row"><span>Envío</span><span>Se coordina al confirmar</span></div>
+              <div class="summary-row total"><span>Total</span><span>${window.formatPrecio(subtotal)}</span></div>
+              <button type="button" class="btn btn-primary btn-lg btn-block" onclick="abrirModalCheckout()">Finalizar compra</button>
+            </div>
+          </aside>
+        </div>`;
+    }
+
+    function modificarCantidad(index, cambio) {
+      const cart = window.getCart();
+      if (!cart[index]) return;
+      cart[index].cantidad = (cart[index].cantidad || 1) + cambio;
+      if (cart[index].cantidad <= 0) cart.splice(index, 1);
+      window.saveCart(cart);
+      renderizarCarrito();
+    }
+
+    function eliminarDelCarrito(index) {
+      const cart = window.getCart();
+      const removed = cart.splice(index, 1);
+      window.saveCart(cart);
+      renderizarCarrito();
+      if (removed.length) window.showToast(`Quitaste «${removed[0].titulo}» del carrito.`, 'info');
+    }
+
+    function abrirModalCheckout() {
+      const { subtotal, unidades } = totales(window.getCart());
+      document.getElementById('checkout-total-val').textContent = window.formatPrecio(subtotal);
+      document.getElementById('checkout-count').textContent = `${unidades} ${unidades === 1 ? 'libro' : 'libros'}`;
+      document.getElementById('modal-checkout').classList.add('active');
+      document.getElementById('order-name').focus();
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    function procesarPedido() {
+      const cart = window.getCart();
+      if (!cart.length) return;
+      const { subtotal, unidades } = totales(cart);
+      const pedido = `N.º ${Math.floor(100000 + Math.random() * 900000)}`;
+
+      closeModal('modal-checkout');
+      document.getElementById('receipt-id').textContent = pedido;
+      document.getElementById('receipt-date').textContent = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+      document.getElementById('receipt-name').textContent = document.getElementById('order-name').value.trim();
+      document.getElementById('receipt-items-count').textContent = String(unidades);
+      document.getElementById('receipt-total').textContent = window.formatPrecio(subtotal);
+
+      window.saveCart([]);
+      renderizarCarrito();
+      document.getElementById('modal-receipt').classList.add('active');
+    }
+  </script>
 </body>
 </html>
