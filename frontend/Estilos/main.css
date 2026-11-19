@@ -408,7 +408,13 @@ p { text-wrap: pretty; }
 .store-bar .search { flex: 1 1 320px; max-width: 560px; }
 .store-bar .search .input { min-height: 44px; }
 .store-bar .meta { font-size: var(--fs-sm); color: var(--text-3); margin-left: auto; }
+/* RF22: campos de precio mínimo y máximo, uno al lado del otro */
+.price-range { display: flex; align-items: center; gap: 6px; color: var(--text-3); }
+.price-range .input { width: 120px; min-height: 44px; }
 
+/* RF22: casilla "Solo disponibles" */
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--ink-900); }
 .cart-link { position: relative; }
 .cart-link .badge, .badge {
   position: absolute; top: -6px; right: -6px;

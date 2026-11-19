@@ -65,7 +65,10 @@ async function inicializarCatalogo() {
 
   const searchInput = document.getElementById('search-input');
   searchInput.addEventListener('input', () => renderizarLibros());
-
+  // RF22: volver a pintar el catálogo cada vez que cambia un filtro
+  ['precio-min', 'precio-max', 'solo-disponibles'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => renderizarLibros());
+  });
   // Abrir la ficha si llega con ?libro=ID
   const id = new URLSearchParams(location.search).get('libro');
   if (id) abrirDetalleLibro(Number(id));
@@ -97,12 +100,32 @@ function renderizarPestanas() {
   };
 }
 
+/**
+ * RF22 · Devuelve los libros que cumplen TODOS los filtros activos a la vez:
+ * texto (título o autor), género, rango de precio y "solo disponibles".
+ * @returns {Array<Object>} Libros filtrados.
+ */
 function librosFiltrados() {
   const termino = (document.getElementById('search-input')?.value || '').trim().toLowerCase();
+
+  // Si el campo está vacío, parseFloat devuelve NaN y ese límite no se aplica
+  const min = parseFloat(document.getElementById('precio-min')?.value);
+  const max = parseFloat(document.getElementById('precio-max')?.value);
+  const soloDisponibles = document.getElementById('solo-disponibles')?.checked;
+
   return catalogoLibros.filter(libro => {
-    const coincideGenero = generoSeleccionado === 'Todos' || (libro.genero || 'General') === generoSeleccionado;
-    const texto = `${libro.titulo} ${libro.autor} ${libro.genero} ${libro.ISBN || ''}`.toLowerCase();
-    return coincideGenero && (!termino || texto.includes(termino));
+    const precio = parseFloat(libro.precio) || 0;
+
+    const coincideTexto = !termino ||
+      `${libro.titulo} ${libro.autor}`.toLowerCase().includes(termino);
+    const coincideGenero = generoSeleccionado === 'Todos' ||
+      (libro.genero || 'General') === generoSeleccionado;
+    const coincideMin = isNaN(min) || precio >= min;
+    const coincideMax = isNaN(max) || precio <= max;
+    const coincideDisponible = !soloDisponibles || libro.disponibilidad === 'Disponible';
+
+    // Con && el libro tiene que pasar todos los filtros (así se combinan)
+    return coincideTexto && coincideGenero && coincideMin && coincideMax && coincideDisponible;
   });
 }
 
@@ -128,13 +151,22 @@ function renderizarLibros() {
       </div>`;
     return;
   }
-
+  // RF22: avisar si el rango de precio está al revés
+  const min = parseFloat(document.getElementById('precio-min').value);
+  const max = parseFloat(document.getElementById('precio-max').value);
+  if (!isNaN(min) && !isNaN(max) && min > max) {
+    container.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      <h2>Revisa el rango de precio</h2>
+      <p>El precio mínimo no puede ser mayor que el máximo.</p></div>`;
+    return;
+  }
   if (filtrados.length === 0) {
     container.innerHTML = `
       <div class="empty" style="grid-column:1/-1">
         <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
         <h2>Ningún libro coincide</h2>
-        <p>Prueba con otro título, autor o ISBN, o cambia de género.</p>
+        <p>Ningún libro cumple todos los filtros. Prueba quitando alguno.</p>
+        <button type="button" class="btn btn-secondary" onclick="limpiarFiltros()">Limpiar filtros</button>
       </div>`;
     return;
   }
@@ -178,6 +210,19 @@ function renderizarLibros() {
 function agregarAlCarritoPorId(idLibro) {
   const libro = catalogoLibros.find(l => l.id_libro === idLibro);
   if (libro) window.addToCart(libro);
+}
+
+/**
+ * RF22 · Deja todos los filtros en su valor inicial y vuelve a mostrar el catálogo completo.
+ */
+function limpiarFiltros() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('precio-min').value = '';
+  document.getElementById('precio-max').value = '';
+  document.getElementById('solo-disponibles').checked = false;
+  generoSeleccionado = 'Todos';
+  renderizarPestanas(); // vuelve a marcar la pestaña "Todos"
+  renderizarLibros();
 }
 
 /** Control rápido del dueño: cambia Disponible / Agotado desde el catálogo. */

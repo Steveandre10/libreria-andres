@@ -18,7 +18,7 @@
       <header class="page-head">
         <div>
           <h1 id="welcome">Hola de nuevo</h1>
-          <p>Busca por título, autor o ISBN, o recorre el catálogo por género.</p>
+          <p>Busca por título o autor, o filtra por género, precio y disponibilidad.</p>
         </div>
         <div class="actions">
           <a href="admin.html#libros" id="btn-admin-new" class="btn btn-secondary" hidden>
@@ -35,7 +35,21 @@
         <label class="search">
           <span class="sr-only">Buscar en el catálogo</span>
           <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-          <input type="search" id="search-input" class="input" placeholder="Buscar por título, autor, género o ISBN" autocomplete="off" />
+          <input type="search" id="search-input" class="input" placeholder="Buscar por título o autor" autocomplete="off" />
+        </label>
+        <!-- RF22: filtro por rango de precio (mínimo y máximo) -->
+        <div class="price-range" role="group" aria-label="Rango de precio">
+          <label class="sr-only" for="precio-min">Precio mínimo</label>
+          <input type="number" id="precio-min" class="input" placeholder="Precio mín." min="0" step="0.01" />
+          <span aria-hidden="true">–</span>
+          <label class="sr-only" for="precio-max">Precio máximo</label>
+          <input type="number" id="precio-max" class="input" placeholder="Precio máx." min="0" step="0.01" />
+        </div>
+
+        <!-- RF22: mostrar solo libros con disponibilidad = 'Disponible' -->
+        <label class="check">
+          <input type="checkbox" id="solo-disponibles" />
+          Solo disponibles
         </label>
         <span class="meta" id="catalog-meta"></span>
       </div>
