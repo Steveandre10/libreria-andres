@@ -16,7 +16,7 @@
   const usuario = localStorage.getItem('usuario');
   const currentPath = window.location.pathname;
   const isLoginPage = currentPath.includes('login.html');
-  const isAdminPage = currentPath.includes('admin.html');
+  // (La protección de admin.html la hace admin.js después de consultar los permisos)
 
   // CONTROL DE ACCESO
   if (!token || !usuario) {
@@ -38,16 +38,48 @@
     }
   };
 
+  /** Se mantiene por compatibilidad: true solo para el rol administrador. */
   window.isAdmin = function() {
     const u = window.getCurrentUser();
     return !!(u && u.rol === 'admin');
   };
 
-  // La sección de administración es exclusiva del rol admin
-  if (isAdminPage && !window.isAdmin()) {
-    window.location.href = 'index.html';
-    return;
-  }
+  /** RF18 · Permisos guardados en la sesión: [{ modulo, ver, editar }] */
+  window.getPermisos = function() {
+    const u = window.getCurrentUser();
+    return (u && u.permisos) || [];
+  };
+
+  /**
+   * RF18 · ¿El usuario puede ver/editar este módulo?
+   * @param {string} modulo - resumen | libros | usuarios | resenas | roles
+   * @param {'ver'|'editar'} accion
+   */
+  window.puede = function(modulo, accion = 'ver') {
+    const p = window.getPermisos().find(x => x.modulo === modulo);
+    return !!(p && p[accion]);
+  };
+
+  /** RF18 · Personal interno = puede ver al menos un módulo de la administración. */
+  window.esPersonal = function() {
+    return window.getPermisos().some(p => p.ver);
+  };
+
+  /**
+   * RF18 · Pide al servidor el rol y los permisos ACTUALES y los guarda en la sesión.
+   * Así, si el administrador cambia tu rol, lo ves al recargar sin volver a iniciar sesión.
+   */
+  window.refrescarPermisos = async function() {
+    try {
+      const res = await window.fetchAPI('/api/roles/mis-permisos');
+      if (!res.ok) return;
+      const { rol, rol_nombre, permisos } = await res.json();
+      const u = window.getCurrentUser();
+      localStorage.setItem('usuario', JSON.stringify({ ...u, rol, rol_nombre, permisos }));
+    } catch {
+      // Sin conexión: se siguen usando los permisos guardados
+    }
+  };
 
   /** Escapa texto para insertarlo de forma segura en HTML. */
   window.esc = function(valor) {
@@ -121,17 +153,18 @@
     if (!rail) return;
     const page = rail.dataset.page || '';
     const user = window.getCurrentUser() || {};
-    const admin = window.isAdmin();
+    const personal = window.esPersonal();
     let html = '';
 
     if (page.startsWith('admin')) {
       const seccion = page.split(':')[1] || 'resumen';
       html = `
         <a class="rail-brand" href="admin.html#resumen"><strong>Librería Andrés</strong><span>Administración</span></a>
-        ${link('admin.html#resumen', 'fa-chart-simple', 'Resumen', seccion === 'resumen')}
-        ${link('admin.html#libros', 'fa-book', 'Libros', seccion === 'libros', '<span class="count" data-count="libros" hidden></span>')}
-        ${link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios')}
-        ${link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas')}
+        ${window.puede('resumen') ? link('admin.html#resumen', 'fa-chart-simple', 'Resumen', seccion === 'resumen') : ''}
+        ${window.puede('libros') ? link('admin.html#libros', 'fa-book', 'Libros', seccion === 'libros', '<span class="count" data-count="libros" hidden></span>') : ''}
+        ${window.puede('usuarios') ? link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios') : ''}
+        ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas') : ''}
+        ${window.puede('roles') ? link('admin.html#roles', 'fa-user-shield', 'Roles y permisos', seccion === 'roles') : ''}
         <div class="rail-group">Tienda</div>
         ${link('index.html', 'fa-store', 'Ver catálogo', false)}`;
     } else {
@@ -142,14 +175,14 @@
         ${link('wishlist.html', 'fa-heart', 'Lista de deseos', page === 'deseos')}
         ${link('purchases.html', 'fa-box', 'Mis compras', page === 'compras')}
         ${link('profile.html', 'fa-user', 'Mi perfil', page === 'perfil')}
-        ${admin ? `<div class="rail-group">Dueño</div>${link('admin.html', 'fa-sliders', 'Administrar tienda', false)}` : ''}`;
+        ${personal ? `<div class="rail-group">Equipo</div>${link('admin.html', 'fa-sliders', 'Administrar tienda', false)}` : ''}`;
     }
 
     html += `
       <div class="rail-foot">
         <div class="rail-user">
           <span class="avatar" aria-hidden="true">${window.esc(iniciales(user.nombre))}</span>
-          <div><b>${window.esc(user.nombre || 'Lector')}</b><small>${admin ? 'Administrador' : 'Cliente'}</small></div>
+          <div><b>${window.esc(user.nombre || 'Lector')}</b><small>${window.esc(user.rol_nombre || (personal ? 'Equipo' : 'Cliente'))}</small></div>
         </div>
         <a href="#" class="rail-logout logout-btn"><i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i><span>Cerrar sesión</span></a>
       </div>`;
@@ -167,6 +200,8 @@
         logout();
       }
     });
+    // RF18: actualizar permisos y volver a dibujar el menú con los datos frescos
+    window.refrescarPermisos().then(() => window.renderShell());
     window.updateCartBadge();
   });
 

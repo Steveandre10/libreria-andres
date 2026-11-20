@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const adminBtn = document.getElementById('btn-admin-new');
-  if (adminBtn) adminBtn.hidden = !window.isAdmin();
+  if (adminBtn) adminBtn.hidden = !window.puede('libros'); // RF18
 
   if (document.getElementById('books-container')) {
     inicializarCatalogo();
@@ -133,7 +133,7 @@ function renderizarLibros() {
   const container = document.getElementById('books-container');
   const meta = document.getElementById('catalog-meta');
   const filtrados = librosFiltrados();
-  const admin = window.isAdmin();
+  const admin = window.puede('libros', 'editar'); // RF18: controles rápidos solo si puede editar libros
 
   if (meta) {
     meta.textContent = filtrados.length === catalogoLibros.length
@@ -316,7 +316,7 @@ async function abrirDetalleLibro(idLibro) {
   addBtn.innerHTML = disponible ? '<i class="fas fa-bag-shopping" aria-hidden="true"></i> Añadir al carrito' : 'Sin existencias';
 
   const edit = document.getElementById('detail-admin-edit');
-  edit.hidden = !window.isAdmin();
+  edit.hidden = !window.puede('libros', 'editar'); // RF18
   edit.href = `admin.html#libros/${libro.id_libro}`;
 
   const sheet = document.getElementById('book-sheet');
