@@ -57,43 +57,50 @@ export const obtenerLibro = async (req, res) => {
  * @param {import('express').Request} req - Objeto de petición Express con datos en body.
  * @param {import('express').Response} res - Objeto de respuesta Express.
  */
+/**
+ * RF13 · Valida la cantidad de stock: entero de 0 en adelante.
+ * @returns {number|null} La cantidad como número, o null si no es válida.
+ */
+const leerStock = (valor) => {
+  const n = Number(valor);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+};
+
+/** RF13 · Registra un libro nuevo con su cantidad inicial en stock. */
 export const crearLibro = async (req, res) => {
   try {
-    const { titulo, ISBN, genero, autor, precio, portada, descripcion, disponibilidad, id_libreria } = req.body;
-    
+    const { titulo, ISBN, genero, autor, precio, portada, descripcion, stock } = req.body;
+
     if (!titulo || !autor) {
       return res.status(400).json({ error: 'Título y autor son campos obligatorios.' });
+    }
+    const cantidad = leerStock(stock ?? 0);
+    if (cantidad === null) {
+      return res.status(400).json({ error: 'La cantidad en stock debe ser un número entero de 0 en adelante.' });
     }
 
     const nuevoLibro = await crearLibroModel({
       titulo,
-      ISBN,
+      ISBN: ISBN || null,          // vacío = sin ISBN (NULL no choca con la regla UNIQUE)
       genero: genero || 'General',
       autor,
       precio: precio ? parseFloat(precio) : 19.99,
       portada,
       descripcion,
-      disponibilidad: disponibilidad || 'Disponible',
-      id_libreria: id_libreria ? parseInt(id_libreria) : null
+      stock: cantidad
     });
 
-    res.status(201).json({
-      message: 'Libro creado exitosamente',
-      libro: nuevoLibro
-    });
+    res.status(201).json({ message: 'Libro creado exitosamente', libro: nuevoLibro });
   } catch (error) {
+    // RF13: la regla UNIQUE de la BD avisa si el ISBN ya existe
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ya existe un libro con ese ISBN.' });
+    }
     res.status(500).json({ error: error.message });
   }
 };
 
-/**
- * Controlador para actualizar un libro.
- * 
- * @async
- * @function actualizarLibro
- * @param {import('express').Request} req - Objeto de petición Express.
- * @param {import('express').Response} res - Objeto de respuesta Express.
- */
+/** RF13 · Actualiza la información de un libro y/o su cantidad en stock. */
 export const actualizarLibro = async (req, res) => {
   try {
     const { id } = req.params;
@@ -102,26 +109,26 @@ export const actualizarLibro = async (req, res) => {
       return res.status(404).json({ error: 'Libro no encontrado' });
     }
 
-    await actualizarLibroModel(id, req.body);
-    const libroActualizado = await getLibroById(id);
+    const datos = { ...req.body };
+    if (datos.stock !== undefined) {
+      datos.stock = leerStock(datos.stock);
+      if (datos.stock === null) {
+        return res.status(400).json({ error: 'La cantidad en stock debe ser un número entero de 0 en adelante.' });
+      }
+    }
 
-    res.json({
-      message: 'Libro actualizado correctamente',
-      libro: libroActualizado
-    });
+    await actualizarLibroModel(id, datos);
+    const libroActualizado = await getLibroById(id);
+    res.json({ message: 'Libro actualizado correctamente', libro: libroActualizado });
   } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ya existe otro libro con ese ISBN.' });
+    }
     res.status(500).json({ error: error.message });
   }
 };
 
-/**
- * Controlador para eliminar un libro.
- * 
- * @async
- * @function eliminarLibro
- * @param {import('express').Request} req - Objeto de petición Express.
- * @param {import('express').Response} res - Objeto de respuesta Express.
- */
+/** Elimina un libro (junto con su inventario y sus reseñas). */
 export const eliminarLibro = async (req, res) => {
   try {
     const { id } = req.params;
@@ -129,10 +136,13 @@ export const eliminarLibro = async (req, res) => {
     if (!libroExistente) {
       return res.status(404).json({ error: 'Libro no encontrado' });
     }
-
     await eliminarLibroModel(id);
     res.json({ message: 'Libro eliminado exitosamente' });
   } catch (error) {
+    // Si el libro ya aparece en facturas o pedidos, la BD no deja borrarlo (es historial de ventas)
+    if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(409).json({ error: 'Este libro tiene ventas o pedidos registrados. En vez de eliminarlo, deja su stock en 0.' });
+    }
     res.status(500).json({ error: error.message });
   }
 };
