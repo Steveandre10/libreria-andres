@@ -1,12 +1,12 @@
 /**
  * @file admin.js
  * @description Administración de Librería Andrés (personal interno, según los permisos de su rol · RF18).
- * Secciones por hash: #resumen, #libros, #libros/nuevo, #libros/:id, #usuarios, #usuarios/nuevo, #resenas, #roles, #roles/nuevo, #roles/:clave
+ * Secciones por hash: #resumen, #libros, #libros/nuevo, #libros/:id, #inventario, #usuarios, #usuarios/nuevo, #resenas, #roles, #roles/nuevo, #roles/:clave
  */
 
 const esc = (v) => window.esc(v);
 /** RF18 · Módulos de la administración y su nombre visible (mismos que en el backend). */
-const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos' };
+const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos' }; // RF14: + inventario
 const MODULOS = Object.keys(NOMBRES_MODULO);
 const estado = {
   libros: [],
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   window.addEventListener('hashchange', enrutar);
-  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles()]);
+  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles(), cargarSolicitudes()]);
   enrutar();
 });
 
@@ -87,6 +87,7 @@ async function leerError(res, porDefecto) {
    --------------------------------------------------------------- */
 function enrutar() {
   const [hash, param] = location.hash.replace('#', '').split('/');
+  detenerInventarioEnVivo(); // RF14: al cambiar de sección se apaga la actualización automática
   // Sin sección en la URL: abre el primer módulo que este rol puede ver
   const seccion = hash || MODULOS.find(m => window.puede(m)) || 'resumen';
 
@@ -96,7 +97,7 @@ function enrutar() {
   actualizarConteoRail();
 
   const root = document.getElementById('admin-root');
-  const vistas = { resumen: vistaResumen, libros: vistaLibros, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles };
+  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles };
 
   // RF18 · criterio 3: sin permiso para ver el módulo -> acceso denegado
   if (!vistas[seccion] || !window.puede(seccion, 'ver')) {
@@ -137,6 +138,14 @@ function actualizarConteoRail() {
     badge.textContent = agotados;
     badge.hidden = agotados === 0;
     badge.title = `${agotados} agotados`;
+  }
+  // RF14: solicitudes de devolución esperando respuesta
+  const pendientes = inv.solicitudes.filter(x => x.estado === 'Pendiente').length;
+  const badgeSol = document.querySelector('[data-count="solicitudes"]');
+  if (badgeSol) {
+    badgeSol.textContent = pendientes;
+    badgeSol.hidden = pendientes === 0;
+    badgeSol.title = `${pendientes} solicitudes de devolución pendientes`;
   }
 }
 
@@ -928,3 +937,392 @@ window.eliminarRol = async function(clave) {
     window.showToast(e.message, 'error');
   }
 };
+
+
+/* ---------------------------------------------------------------
+   INVENTARIO EN TIEMPO REAL (RF14)
+   Cómo funciona:
+   1. Al entrar a #inventario se piden /api/inventario y /api/pedidos.
+   2. Cada 10 segundos se vuelven a pedir y se repinta solo lo que cambia
+      (la búsqueda que escribiste no se borra).
+   3. Si el stock de un libro cambió desde la última vez (por una venta,
+      devolución o ajuste), su número parpadea para que se note.
+   4. Al salir de la sección, el temporizador se apaga (detenerInventarioEnVivo).
+   --------------------------------------------------------------- */
+
+/** Cada cuánto se refresca el inventario (milisegundos). */
+const INVENTARIO_CADA_MS = 10000;
+/** Un libro con esta cantidad o menos se marca como "stock bajo". */
+const STOCK_BAJO = 3;
+
+const inv = {
+  libros: [],
+  movimientos: [],
+  pedidos: [],
+  solicitudes: [],       // RF14: solicitudes de devolución de los clientes
+  actualizado: null,
+  anterior: new Map(),   // id_libro -> stock de la consulta anterior (para el parpadeo)
+  q: '',
+  timer: null
+};
+
+/** RF14 · Apaga la actualización automática (se llama al cambiar de sección). */
+function detenerInventarioEnVivo() {
+  if (inv.timer) clearInterval(inv.timer);
+  inv.timer = null;
+}
+
+/** RF14 · Pide al servidor la foto actual del inventario y las ventas recientes. */
+async function cargarInventario() {
+  const [resInv, resPed] = await Promise.all([
+    window.fetchAPI('/api/inventario'),
+    window.fetchAPI('/api/pedidos')
+  ]);
+  if (!resInv.ok) throw await leerError(resInv, 'No se pudo consultar el inventario');
+  const datos = await resInv.json();
+  inv.anterior = new Map(inv.libros.map(l => [l.id_libro, l.stock]));
+  inv.libros = datos.libros;
+  inv.movimientos = datos.movimientos;
+  inv.actualizado = new Date(datos.actualizado);
+  inv.pedidos = resPed.ok ? (await resPed.json()).pedidos : [];
+  await cargarSolicitudes();
+}
+
+/** RF14 · Trae las solicitudes de devolución (solo si el rol puede ver el inventario). */
+async function cargarSolicitudes() {
+  if (!window.puede('inventario')) return;
+  try {
+    const res = await window.fetchAPI('/api/pedidos/solicitudes');
+    if (res.ok) inv.solicitudes = (await res.json()).solicitudes;
+  } catch {
+    // sin conexión: se mantienen las que ya teníamos
+  }
+}
+
+/** RF14 · Vista principal del módulo Inventario. */
+async function vistaInventario(root) {
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div>
+          <h1>Inventario</h1>
+          <p><span class="en-vivo" aria-hidden="true"></span> En tiempo real · <span id="inv-hora">consultando…</span></p>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" id="inv-refrescar"><i class="fas fa-rotate" aria-hidden="true"></i> Actualizar ahora</button>
+        </div>
+      </header>
+
+      <div class="summary-strip" id="inv-resumen"></div>
+
+      <!-- RF14: solicitudes de devolución enviadas por los clientes desde "Mis compras" -->
+      <section class="panel" id="inv-solicitudes-panel" style="margin-bottom:26px">
+        <div class="panel-head"><h2>Solicitudes de devolución <span class="status status-bajo" id="inv-sol-count" hidden></span></h2></div>
+        <ul class="list" id="inv-solicitudes"></ul>
+      </section>
+
+      <div class="toolbar">
+        <label class="search"><span class="sr-only">Buscar en el inventario</span><i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" class="input" id="inv-q" placeholder="Buscar por título o ISBN" value="${esc(inv.q)}" /></label>
+      </div>
+
+      <div class="table-wrap" style="margin-bottom:26px">
+        <table class="table">
+          <thead><tr><th>Libro</th><th>ISBN</th><th class="right">En stock</th><th class="right">Vendidos</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+          <tbody id="inv-tbody"><tr><td colspan="6"><p class="list-empty">Cargando inventario…</p></td></tr></tbody>
+        </table>
+        <div class="table-foot" id="inv-foot"></div>
+      </div>
+
+      <div class="admin-cols">
+        <section class="panel">
+          <div class="panel-head"><h2>Ventas recientes</h2></div>
+          <ul class="list" id="inv-ventas"></ul>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>Movimientos del stock</h2></div>
+          <ul class="list" id="inv-movs"></ul>
+        </section>
+      </div>
+    </section>`;
+
+  document.getElementById('inv-q').addEventListener('input', (e) => {
+    inv.q = e.target.value;
+    pintarTablaInventario();
+  });
+  document.getElementById('inv-refrescar').addEventListener('click', () => refrescarInventario(true));
+
+  await refrescarInventario();
+  // Actualización automática mientras sigas en esta sección
+  inv.timer = setInterval(() => {
+    if (document.visibilityState === 'visible') refrescarInventario();
+  }, INVENTARIO_CADA_MS);
+}
+
+/** RF14 · Consulta y repinta. Con `avisar` muestra un aviso (botón "Actualizar ahora"). */
+async function refrescarInventario(avisar = false) {
+  try {
+    await cargarInventario();
+    if (!document.getElementById('inv-tbody')) return;   // ya saliste de la sección
+    pintarResumenInventario();
+    pintarTablaInventario();
+    pintarSolicitudes();
+    pintarVentas();
+    pintarMovimientos();
+    actualizarConteoRail();
+    document.getElementById('inv-hora').textContent =
+      `actualizado a las ${inv.actualizado.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    if (avisar) window.showToast('Inventario actualizado.');
+  } catch (e) {
+    const hora = document.getElementById('inv-hora');
+    if (hora) hora.textContent = 'sin conexión con el servidor, reintentando…';
+  }
+}
+
+/** RF14 · Franja de totales arriba de la tabla. */
+function pintarResumenInventario() {
+  const unidades = inv.libros.reduce((s, l) => s + l.stock, 0);
+  const agotados = inv.libros.filter(l => l.stock === 0).length;
+  const bajos = inv.libros.filter(l => l.stock > 0 && l.stock <= STOCK_BAJO).length;
+  const vendidas = inv.libros.reduce((s, l) => s + l.vendidos, 0);
+  document.getElementById('inv-resumen').innerHTML = `
+    <div><b>${unidades}</b><span>Unidades en stock</span></div>
+    <div><b>${inv.libros.length}</b><span>Títulos</span></div>
+    <div class="${agotados ? 'warn' : ''}"><b>${agotados}</b><span>Agotados</span></div>
+    <div class="${bajos ? 'warn' : ''}"><b>${bajos}</b><span>Stock bajo (≤ ${STOCK_BAJO})</span></div>
+    <div><b>${vendidas}</b><span>Unidades vendidas</span></div>`;
+}
+
+/** RF14 · Tabla de libros con su cantidad actual, filtrada por título o ISBN. */
+function pintarTablaInventario() {
+  const q = inv.q.trim().toLowerCase();
+  const filas = inv.libros.filter(l => !q || `${l.titulo} ${l.ISBN || ''}`.toLowerCase().includes(q));
+  const tbody = document.getElementById('inv-tbody');
+  document.getElementById('inv-foot').textContent =
+    filas.length === inv.libros.length ? `${filas.length} títulos` : `${filas.length} de ${inv.libros.length} títulos`;
+
+  if (!filas.length) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty" style="padding:28px"><p>${inv.libros.length ? 'Ningún libro coincide con ese título o ISBN.' : 'Aún no hay libros en el inventario.'}</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filas.map(l => {
+    const antes = inv.anterior.get(l.id_libro);
+    const cambio = antes !== undefined && antes !== l.stock;   // ¿cambió desde la última consulta?
+    const nivel = l.stock === 0 ? 'stock-cero' : (l.stock <= STOCK_BAJO ? 'stock-bajo' : '');
+    return `
+      <tr>
+        <td><div class="title-cell"><img src="${portada(l)}" alt="" loading="lazy" onerror="this.src=window.PORTADA_DEFECTO" /><div><b>${esc(l.titulo)}</b><span>${esc(l.autor)}</span></div></div></td>
+        <td class="mono">${esc(l.ISBN || '—')}</td>
+        <td class="right"><span class="stock-num ${nivel} ${cambio ? 'cambio' : ''}" title="${cambio ? `Antes: ${antes}` : ''}">${l.stock}</span></td>
+        <td class="right">${l.vendidos}</td>
+        <td><span class="status ${l.stock === 0 ? 'status-out' : (l.stock <= STOCK_BAJO ? 'status-bajo' : 'status-ok')}">${l.stock > 0 ? (l.stock <= STOCK_BAJO ? 'Stock bajo' : 'Disponible') : 'Agotado'}</span></td>
+        <td><div class="row-actions">
+          <a class="icon-btn" href="admin.html#libros/${l.id_libro}" data-requiere="libros:editar" aria-label="Ajustar stock de ${esc(l.titulo)}" title="Ajustar stock"><i class="fas fa-pen"></i></a>
+        </div></td>
+      </tr>`;
+  }).join('');
+  aplicarPermisos(tbody);
+}
+
+/** RF14 · Últimas ventas, con botón de devolución para las que siguen activas. */
+function pintarVentas() {
+  const lista = document.getElementById('inv-ventas');
+  if (!inv.pedidos.length) {
+    lista.innerHTML = '<li class="list-empty">Todavía no hay ventas.</li>';
+    return;
+  }
+  lista.innerHTML = inv.pedidos.slice(0, 8).map(p => {
+    const unidades = p.items.reduce((s, i) => s + i.cantidad, 0);
+    const resumen = p.items.map(i => `${i.cantidad}× ${i.titulo}`).join(', ');
+    return `
+      <li>
+        <div class="grow">
+          <b>${window.numeroRegistro(p.id_pedido)} · ${esc(p.cliente || 'Cliente')}</b>
+          <p class="quote">${esc(resumen)}</p>
+          <span>${unidades} unidad(es) · ${window.formatPrecio(p.total)} · ${fechaHora(p.fecha_registro)}</span>
+        </div>
+        ${p.estado !== 'Activo'
+          ? '<span class="status status-out">Devuelto</span>'
+          : (p.solicitud && p.solicitud.estado === 'Pendiente'
+            ? '<span class="status status-bajo">Solicitud pendiente</span>'
+            : `<button type="button" class="btn btn-secondary btn-sm" data-requiere="inventario:editar" onclick="devolverPedido(${p.id_pedido})">Registrar devolución</button>`)}
+      </li>`;
+  }).join('');
+  aplicarPermisos(lista);
+}
+
+/** RF14 · Historial: cada venta, devolución, alta o ajuste con su cambio de stock. */
+function pintarMovimientos() {
+  const lista = document.getElementById('inv-movs');
+  if (!inv.movimientos.length) {
+    lista.innerHTML = '<li class="list-empty">Aún no hay movimientos registrados.</li>';
+    return;
+  }
+  const iconos = { 'Venta': 'fa-cart-shopping', 'Devolución': 'fa-rotate-left', 'Ajuste': 'fa-pen', 'Alta': 'fa-plus' };
+  lista.innerHTML = inv.movimientos.slice(0, 10).map(m => {
+    const sube = m.stock_nuevo > m.stock_anterior;
+    return `
+      <li>
+        <span class="mov-icono ${sube ? 'sube' : 'baja'}"><i class="fas ${iconos[m.tipo_movimiento] || 'fa-circle'}" aria-hidden="true"></i></span>
+        <div class="grow">
+          <b>${esc(m.tipo_movimiento)} · ${esc(m.titulo)}</b>
+          <span>${esc(m.usuario_nombre || 'Sistema')} · ${fechaHora(m.fecha_movimiento)}${m.id_pedido ? ` · ${window.numeroRegistro(m.id_pedido)}` : ''}</span>
+        </div>
+        <span class="mov-cambio ${sube ? 'sube' : 'baja'}">${sube ? '+' : '−'}${m.cantidad}</span>
+        <span class="field-hint num" style="min-width:52px; text-align:right">${m.stock_anterior} → ${m.stock_nuevo}</span>
+      </li>`;
+  }).join('');
+}
+
+/** Fecha y hora corta: "20 nov, 15:42". */
+function fechaHora(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** RF14 · Registra la devolución de un pedido: vuelve al inventario y queda en el historial. */
+window.devolverPedido = async function(idPedido) {
+  const p = inv.pedidos.find(x => x.id_pedido === idPedido);
+  if (!p) return;
+  const ok = await window.confirmar({
+    titulo: `¿Registrar la devolución del ${window.numeroRegistro(idPedido)}?`,
+    mensaje: `Las ${p.items.reduce((s, i) => s + i.cantidad, 0)} unidad(es) vuelven al inventario y el pedido queda como Devuelto.`,
+    confirmar: 'Registrar devolución'
+  });
+  if (!ok) return;
+  try {
+    const res = await window.fetchAPI(`/api/pedidos/${idPedido}/devolucion`, { method: 'POST' });
+    if (!res.ok) throw await leerError(res, 'No se pudo registrar la devolución');
+    window.showToast('Devolución registrada. El stock ya se repuso.');
+    await cargarLibros();          // para que Libros y el Resumen también vean el stock nuevo
+    await refrescarInventario();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/* ---------------------------------------------------------------
+   SOLICITUDES DE DEVOLUCIÓN (RF14)
+   El cliente la envía desde "Mis compras"; aquí el personal la aprueba
+   (se hace la devolución: stock repuesto y pedido "Devuelto") o la rechaza
+   con una respuesta que el cliente ve en el detalle de su pedido.
+   --------------------------------------------------------------- */
+
+/** RF14 · Pinta las solicitudes: las pendientes con botones, las resueltas como historial. */
+function pintarSolicitudes() {
+  const lista = document.getElementById('inv-solicitudes');
+  if (!lista) return;
+  const pendientes = inv.solicitudes.filter(x => x.estado === 'Pendiente');
+  const resueltas = inv.solicitudes.filter(x => x.estado !== 'Pendiente').slice(0, 4);
+
+  const contador = document.getElementById('inv-sol-count');
+  contador.hidden = pendientes.length === 0;
+  contador.textContent = `${pendientes.length} pendiente(s)`;
+
+  if (!inv.solicitudes.length) {
+    lista.innerHTML = '<li class="list-empty">No hay solicitudes de devolución. Cuando un cliente pida una desde "Mis compras", aparecerá aquí.</li>';
+    return;
+  }
+
+  const fila = (sol) => {
+    const libros = sol.items.map(i => `${i.cantidad}× ${i.titulo}`).join(', ');
+    const pendiente = sol.estado === 'Pendiente';
+    return `
+      <li class="${pendiente ? 'solicitud-pendiente' : ''}">
+        <div class="grow">
+          <b>${window.numeroRegistro(sol.id_pedido)} · ${esc(sol.cliente || 'Cliente')} · ${window.formatPrecio(sol.total)}</b>
+          <p class="quote"><b>${esc(sol.motivo)}</b>${sol.detalle ? ` — “${esc(sol.detalle)}”` : ''}</p>
+          <span>${esc(libros)} · pedida ${fechaHora(sol.fecha_solicitud)}${!pendiente ? ` · respondida por ${esc(sol.revisor || '—')}` : ''}</span>
+          ${!pendiente && sol.respuesta ? `<span>Respuesta: ${esc(sol.respuesta)}</span>` : ''}
+        </div>
+        ${pendiente ? `
+          <div class="solicitud-acciones">
+            <button type="button" class="btn btn-primary btn-sm" data-requiere="inventario:editar" onclick="responderSolicitud(${sol.id_solicitud}, 'aprobar')">Aprobar</button>
+            <button type="button" class="btn btn-danger btn-sm" data-requiere="inventario:editar" onclick="responderSolicitud(${sol.id_solicitud}, 'rechazar')">Rechazar</button>
+          </div>`
+        : `<span class="status ${sol.estado === 'Aprobada' ? 'status-out' : 'status-admin'}">${sol.estado === 'Aprobada' ? 'Devuelto' : 'Rechazada'}</span>`}
+      </li>`;
+  };
+
+  lista.innerHTML = [...pendientes, ...resueltas].map(fila).join('');
+  aplicarPermisos(lista);
+}
+
+/**
+ * RF14 · Aprueba o rechaza una solicitud.
+ * Aprobar pide confirmación; rechazar pide escribir la respuesta para el cliente.
+ */
+window.responderSolicitud = async function(idSolicitud, decision) {
+  const sol = inv.solicitudes.find(x => x.id_solicitud === idSolicitud);
+  if (!sol) return;
+  const unidades = sol.items.reduce((s, i) => s + i.cantidad, 0);
+  let respuesta = '';
+
+  if (decision === 'aprobar') {
+    const ok = await window.confirmar({
+      titulo: `¿Aprobar la devolución del ${window.numeroRegistro(sol.id_pedido)}?`,
+      mensaje: `Las ${unidades} unidad(es) vuelven al inventario y ${sol.cliente || 'el cliente'} verá su pedido como devuelto.`,
+      confirmar: 'Aprobar devolución'
+    });
+    if (!ok) return;
+  } else {
+    respuesta = await pedirTexto({
+      titulo: `Rechazar la devolución del ${window.numeroRegistro(sol.id_pedido)}`,
+      mensaje: `Motivo del cliente: «${sol.motivo}». Escribe la respuesta que verá en su pedido.`,
+      placeholder: 'Ej.: pasaron más de 30 días desde la entrega.',
+      confirmar: 'Rechazar solicitud'
+    });
+    if (respuesta === null) return;   // canceló
+  }
+
+  try {
+    const res = await window.fetchAPI(`/api/pedidos/solicitudes/${idSolicitud}/responder`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, respuesta })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo responder la solicitud');
+    window.showToast(data.message);
+    await cargarLibros();          // el stock nuevo también se ve en Libros y en el Resumen
+    await refrescarInventario();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/**
+ * Diálogo con forma de ficha que pide un texto obligatorio.
+ * @returns {Promise<string|null>} El texto escrito, o null si se canceló.
+ */
+function pedirTexto({ titulo, mensaje, placeholder = '', confirmar = 'Aceptar' }) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm';
+    dlg.innerHTML = `
+      <form class="ficha" method="dialog">
+        <div class="ficha-head"><h2>${esc(titulo)}</h2></div>
+        <div class="ficha-body">
+          <p>${esc(mensaje)}</p>
+          <textarea class="textarea" name="texto" required maxlength="300" placeholder="${esc(placeholder)}" style="margin-top:12px"></textarea>
+          <div class="confirm-actions">
+            <button type="button" class="btn btn-secondary" data-cancelar>Cancelar</button>
+            <button type="submit" class="btn btn-danger-solid">${esc(confirmar)}</button>
+          </div>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const form = dlg.querySelector('form');
+    const cerrar = (valor) => { dlg.close(); dlg.remove(); resolve(valor); };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const texto = form.texto.value.trim();
+      if (!texto) { form.texto.focus(); return; }
+      cerrar(texto);
+    });
+    dlg.querySelector('[data-cancelar]').addEventListener('click', () => cerrar(null));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); cerrar(null); });
+    dlg.showModal();
+    form.texto.focus();
+  });
+}

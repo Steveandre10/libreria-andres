@@ -162,6 +162,7 @@
         <a class="rail-brand" href="admin.html#resumen"><strong>Librería Andrés</strong><span>Administración</span></a>
         ${window.puede('resumen') ? link('admin.html#resumen', 'fa-chart-simple', 'Resumen', seccion === 'resumen') : ''}
         ${window.puede('libros') ? link('admin.html#libros', 'fa-book', 'Libros', seccion === 'libros', '<span class="count" data-count="libros" hidden></span>') : ''}
+        ${window.puede('inventario') ? link('admin.html#inventario', 'fa-boxes-stacked', 'Inventario', seccion === 'inventario', '<span class="count" data-count="solicitudes" hidden></span>') : ''}
         ${window.puede('usuarios') ? link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios') : ''}
         ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas') : ''}
         ${window.puede('roles') ? link('admin.html#roles', 'fa-user-shield', 'Roles y permisos', seccion === 'roles') : ''}
@@ -224,9 +225,20 @@
   window.addToCart = function(libro) {
     const cart = window.getCart();
     const existente = cart.findIndex(item => item.id_libro === libro.id_libro);
+    const stock = Number(libro.stock);
+    const yaEnCarrito = existente > -1 ? (cart[existente].cantidad || 1) : 0;
+
+    // RF14: no dejar meter más unidades de las que hay (el servidor igual lo vuelve a revisar al pagar)
+    if (!Number.isNaN(stock) && yaEnCarrito >= stock) {
+      window.showToast(stock === 0
+        ? `«${libro.titulo}» está agotado.`
+        : `Solo hay ${stock} unidad(es) de «${libro.titulo}» y ya están en tu carrito.`, 'error');
+      return;
+    }
 
     if (existente > -1) {
-      cart[existente].cantidad = (cart[existente].cantidad || 1) + 1;
+      cart[existente].cantidad = yaEnCarrito + 1;
+      cart[existente].stock = stock;   // RF14: se guarda para limitar el + del carrito
     } else {
       cart.push({
         id_libro: libro.id_libro,
@@ -235,6 +247,7 @@
         precio: parseFloat(libro.precio) || 0,
         portada: libro.portada || window.PORTADA_DEFECTO,
         genero: libro.genero || 'General',
+        stock: Number.isNaN(stock) ? null : stock,   // RF14
         cantidad: 1
       });
     }

@@ -860,3 +860,52 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .stock-cero { color: var(--red); }
 /* RF13: aviso de últimas unidades en la tarjeta del libro */
 .pocas-unidades { font-size: var(--fs-xs); font-weight: 600; color: var(--red); margin-top: 2px; }
+/* ---------- RF14: inventario en tiempo real ---------- */
+/* Punto verde que late junto a "En tiempo real" */
+.en-vivo { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 4px; vertical-align: 1px; box-shadow: 0 0 0 0 rgba(38, 98, 63, 0.5); animation: latido 2s var(--ease) infinite; }
+@keyframes latido { 70% { box-shadow: 0 0 0 7px rgba(38, 98, 63, 0); } 100% { box-shadow: 0 0 0 0 rgba(38, 98, 63, 0); } }
+/* Cantidad en stock: número grande; ámbar si queda poco, rojo si es 0 */
+.stock-num { display: inline-block; min-width: 36px; padding: 2px 8px; border-radius: 6px; font-size: var(--fs-md); font-weight: 800; font-variant-numeric: tabular-nums; }
+.stock-bajo { color: #8a5a00; }
+/* Parpadeo cuando la cantidad cambió desde la última consulta (venta, devolución o ajuste) */
+.stock-num.cambio { animation: cambio-stock 2.4s var(--ease); }
+@keyframes cambio-stock { 0%, 30% { background: #fde9a8; } 100% { background: transparent; } }
+/* Historial de movimientos */
+.mov-icono { width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 0.75rem; }
+.mov-icono.sube { background: var(--ok-bg); color: var(--ok); }
+.mov-icono.baja { background: var(--red-bg); color: var(--red); }
+.mov-cambio { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+.mov-cambio.sube { color: var(--ok); }
+.mov-cambio.baja { color: var(--red); }
+/* Mis compras: una ficha por pedido */
+.pedidos { display: grid; gap: 16px; max-width: 720px; }
+@media (prefers-reduced-motion: reduce) { .en-vivo, .stock-num.cambio { animation: none; } }
+.status-bajo { color: #8a5a00; background: #fdf3dc; border-color: #ecd39a; } /* RF14: stock bajo */
+
+/* ---------- RF14: Mis compras (tarjetas de pedido y su detalle) ---------- */
+/* La tarjeta entera es un botón que abre el detalle */
+.pedido { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease); }
+.pedido:hover { transform: translateY(-2px); box-shadow: 0 16px 30px -16px rgba(28, 43, 74, 0.45); }
+.pedido .ficha-head { display: block; }
+.pedido-linea { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.pedido-total { font-size: var(--fs-lg); font-weight: 800; font-stretch: 106%; font-variant-numeric: tabular-nums; }
+.pedido-resumen { display: block; margin-top: 4px; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pedido-ver { display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 10px 22px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-900); }
+/* Pedido devuelto: la tarjeta completa se tiñe de rojo (sigue en el historial) */
+.pedido-devuelto { background: var(--red-bg); border-color: var(--red-line); }
+.pedido-devuelto .ficha-head { border-bottom-color: var(--red); }
+.pedido-devuelto .pedido-total { color: var(--red); text-decoration: line-through; text-decoration-thickness: 2px; }
+/* Pedido con devolución en revisión: borde ámbar */
+.pedido-pendiente { border-color: #ecd39a; }
+.pedido-pendiente .ficha-head { border-bottom-color: #e0a93a; }
+/* Avisos dentro del detalle del pedido */
+.aviso { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 6px; border: 1px solid; font-size: var(--fs-sm); line-height: 1.5; margin-bottom: 16px; }
+.aviso i { margin-top: 3px; }
+.aviso-pendiente { color: #6b4700; background: #fdf3dc; border-color: #ecd39a; }
+.aviso-devuelto { color: var(--red); background: var(--red-bg); border-color: var(--red-line); }
+.aviso-rechazada { color: var(--ink-900); background: #e7ecf6; border-color: #b7c3dc; }
+.pedido-items tfoot td { border-top: 1px solid var(--line); padding-top: 12px; }
+/* RF14: solicitudes de devolución en el panel */
+.solicitud-pendiente { background: #fffaf0; }
+.solicitud-acciones { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+#inv-solicitudes .grow span { display: block; }

@@ -36,7 +36,7 @@
           <button type="button" class="icon-btn sheet-close" onclick="closeModal('modal-checkout')" aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
         </header>
         <div class="ficha-body">
-          <p class="note"><i class="fas fa-circle-info" aria-hidden="true"></i><span>Los pagos en línea aún no están activos: el pedido se registra sin cobro y coordinamos el pago contigo.</span></p>
+          <p class="note"><i class="fas fa-circle-info" aria-hidden="true"></i><span>Al confirmar, apartamos tus libros del inventario. Los pagos en línea aún no están activos: coordinamos el pago contigo al entregar.</span></p>
           <form id="form-checkout" class="form-grid">
             <label class="field full">
               <span class="field-label">Nombre de quien recibe</span>
@@ -176,7 +176,13 @@
     function modificarCantidad(index, cambio) {
       const cart = window.getCart();
       if (!cart[index]) return;
-      cart[index].cantidad = (cart[index].cantidad || 1) + cambio;
+      const nueva = (cart[index].cantidad || 1) + cambio;
+      // RF14: no subir de las unidades que hay en inventario
+      if (cambio > 0 && cart[index].stock != null && nueva > cart[index].stock) {
+        window.showToast(`Solo hay ${cart[index].stock} unidad(es) de «${cart[index].titulo}».`, 'error');
+        return;
+      }
+      cart[index].cantidad = nueva;
       if (cart[index].cantidad <= 0) cart.splice(index, 1);
       window.saveCart(cart);
       renderizarCarrito();
@@ -202,22 +208,52 @@
       document.getElementById(id).classList.remove('active');
     }
 
-    function procesarPedido() {
+    /**
+     * RF14 · Envía el carrito al servidor. El servidor crea el pedido y la factura,
+     * descuenta cada libro del inventario y responde con el número real del pedido.
+     * Si algún libro ya no tiene unidades suficientes, responde 409 y no se cobra nada.
+     */
+    async function procesarPedido() {
       const cart = window.getCart();
       if (!cart.length) return;
-      const { subtotal, unidades } = totales(cart);
-      const pedido = `N.º ${Math.floor(100000 + Math.random() * 900000)}`;
+      const btn = document.querySelector('#form-checkout [type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Registrando…';
 
-      closeModal('modal-checkout');
-      document.getElementById('receipt-id').textContent = pedido;
-      document.getElementById('receipt-date').textContent = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
-      document.getElementById('receipt-name').textContent = document.getElementById('order-name').value.trim();
-      document.getElementById('receipt-items-count').textContent = String(unidades);
-      document.getElementById('receipt-total').textContent = window.formatPrecio(subtotal);
+      try {
+        const res = await window.fetchAPI('/api/pedidos', {
+          method: 'POST',
+          body: JSON.stringify({
+            items: cart.map(i => ({ id_libro: i.id_libro, cantidad: i.cantidad || 1 })),
+            entrega: {
+              nombre: document.getElementById('order-name').value.trim(),
+              direccion: document.getElementById('order-address').value.trim(),
+              telefono: document.getElementById('order-phone').value.trim()
+            },
+            metodo: document.querySelector('input[name="payment-method"]:checked').value
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'No se pudo registrar el pedido. Inténtalo de nuevo.');
 
-      window.saveCart([]);
-      renderizarCarrito();
-      document.getElementById('modal-receipt').classList.add('active');
+        const { pedido } = data;
+        closeModal('modal-checkout');
+        document.getElementById('receipt-id').textContent = window.numeroRegistro(pedido.id_pedido);
+        document.getElementById('receipt-date').textContent = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+        document.getElementById('receipt-name').textContent = document.getElementById('order-name').value.trim();
+        document.getElementById('receipt-items-count').textContent = String(pedido.unidades);
+        document.getElementById('receipt-total').textContent = window.formatPrecio(pedido.total);
+
+        window.saveCart([]);
+        renderizarCarrito();
+        document.getElementById('modal-receipt').classList.add('active');
+      } catch (err) {
+        // Ej.: "Solo quedan 1 unidad(es) de «Rayuela»." -> el cliente ajusta su carrito
+        window.showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Confirmar pedido';
+      }
     }
   </script>
 </body>

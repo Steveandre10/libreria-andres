@@ -18,22 +18,243 @@
       <header class="page-head">
         <div>
           <h1>Mis compras</h1>
-          <p>El historial de tus pedidos en Librería Andrés.</p>
+          <p>El historial de tus pedidos. Abre uno para ver su detalle o pedir una devolución.</p>
         </div>
       </header>
 
-      <section class="panel">
-        <div class="empty">
-          <i class="fas fa-box" aria-hidden="true"></i>
-          <h2>Aún no hay pedidos en tu historial</h2>
-          <p>Cuando tus pedidos queden registrados en la tienda, los verás aquí con su estado y su total.</p>
-          <a href="index.html" class="btn btn-primary">Ir al catálogo</a>
-        </div>
+      <!-- RF14: pedidos reales del cliente, traídos de /api/pedidos/mios -->
+      <section id="mis-pedidos" class="pedidos">
+        <p class="field-hint">Cargando tus pedidos…</p>
       </section>
     </main>
   </div>
 
+  <!-- RF14: DETALLE DEL PEDIDO (cajón lateral, igual que la ficha del libro en el catálogo) -->
+  <div class="sheet" id="pedido-sheet" aria-hidden="true">
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="pedido-titulo">
+      <article class="ficha" id="pedido-detalle"></article>
+    </div>
+  </div>
+
   <script src="assets/js/auth.js"></script>
   <script src="assets/js/script.js"></script>
+  <script>
+    /* ---------------------------------------------------------------
+       RF14 · MIS COMPRAS
+       1. Lista los pedidos del cliente (GET /api/pedidos/mios).
+       2. Clic en un pedido -> cajón con su detalle completo.
+       3. Si el pedido está activo y no tiene solicitud, el cliente puede pedir
+          la devolución eligiendo un motivo (POST /api/pedidos/:id/solicitud-devolucion).
+       4. El estado de la solicitud se ve en la tarjeta y en el detalle:
+          pendiente (ámbar), aprobada = pedido devuelto (rojo), rechazada (con la respuesta).
+       --------------------------------------------------------------- */
+
+    const esc = window.esc;
+    let pedidos = [];
+
+    /** Motivos de devolución (los mismos que valida el servidor). */
+    const MOTIVOS = ['Llegó dañado', 'No es el libro que pedí', 'Ya no lo necesito', 'La entrega se demoró', 'Otro motivo'];
+
+    const fechaCorta = (v) => v ? new Date(v).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const fechaHora = (v) => v ? new Date(v).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+    /**
+     * Estado visible de un pedido, combinando el pedido y su solicitud.
+     * @returns {{texto:string, clase:string, tarjeta:string}}
+     */
+    function estadoPedido(p) {
+      if (p.estado === 'Devuelto') return { texto: 'Devuelto', clase: 'status-out', tarjeta: 'pedido-devuelto' };
+      if (p.solicitud && p.solicitud.estado === 'Pendiente') return { texto: 'Devolución solicitada', clase: 'status-bajo', tarjeta: 'pedido-pendiente' };
+      if (p.solicitud && p.solicitud.estado === 'Rechazada') return { texto: 'Devolución rechazada', clase: 'status-admin', tarjeta: '' };
+      return { texto: 'Confirmado', clase: 'status-ok', tarjeta: '' };
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      cargarPedidos();
+
+      const sheet = document.getElementById('pedido-sheet');
+      sheet.addEventListener('click', (e) => {
+        if (e.target === sheet || e.target.closest('[data-close-sheet]')) cerrarDetalle();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sheet.classList.contains('active')) cerrarDetalle();
+      });
+    });
+
+    /** Trae los pedidos y pinta la lista de tarjetas. */
+    async function cargarPedidos() {
+      const caja = document.getElementById('mis-pedidos');
+      try {
+        const res = await window.fetchAPI('/api/pedidos/mios');
+        if (!res.ok) throw new Error();
+        pedidos = (await res.json()).pedidos;
+      } catch {
+        caja.innerHTML = '<div class="panel"><div class="empty"><h2>No pudimos cargar tus pedidos</h2><p>Revisa tu conexión e inténtalo de nuevo.</p></div></div>';
+        return;
+      }
+
+      if (!pedidos.length) {
+        caja.innerHTML = `
+          <div class="panel"><div class="empty">
+            <i class="fas fa-box" aria-hidden="true"></i>
+            <h2>Aún no tienes pedidos</h2>
+            <p>Cuando confirmes una compra desde tu carrito, la verás aquí con su estado y su total.</p>
+            <a href="index.html" class="btn btn-primary">Ir al catálogo</a>
+          </div></div>`;
+        return;
+      }
+
+      caja.innerHTML = pedidos.map(p => {
+        const est = estadoPedido(p);
+        const unidades = p.items.reduce((s, i) => s + i.cantidad, 0);
+        return `
+          <button type="button" class="ficha pedido ${est.tarjeta}" onclick="abrirDetalle(${p.id_pedido})" aria-label="Ver detalle del pedido ${window.numeroRegistro(p.id_pedido)}">
+            <span class="ficha-head">
+              <span class="ficha-call"><span>${window.numeroRegistro(p.id_pedido)}</span><span>${fechaCorta(p.fecha_registro)}</span></span>
+              <span class="pedido-linea">
+                <b class="pedido-total">${window.formatPrecio(p.total)}</b>
+                <span class="status ${est.clase}">${est.texto}</span>
+              </span>
+              <span class="pedido-resumen">${unidades} libro(s) · ${esc(p.items.map(i => i.titulo).join(', '))}</span>
+            </span>
+            <span class="pedido-ver">Ver detalle <i class="fas fa-chevron-right" aria-hidden="true"></i></span>
+          </button>`;
+      }).join('');
+    }
+
+    /** Abre el cajón con el detalle completo de un pedido. */
+    function abrirDetalle(idPedido) {
+      const p = pedidos.find(x => x.id_pedido === idPedido);
+      if (!p) return;
+      const est = estadoPedido(p);
+      const s = p.solicitud;
+      const puedeSolicitar = p.estado === 'Activo' && !s;
+
+      document.getElementById('pedido-detalle').innerHTML = `
+        <header class="ficha-head">
+          <div class="ficha-call"><span>${window.numeroRegistro(p.id_pedido)}</span><span>Factura ${p.id_factura ? window.numeroRegistro(p.id_factura) : '—'}</span></div>
+          <h2 id="pedido-titulo">Pedido del ${fechaCorta(p.fecha_registro)}</h2>
+          <p><span class="status ${est.clase}">${est.texto}</span></p>
+          <button type="button" class="icon-btn sheet-close" data-close-sheet aria-label="Cerrar detalle"><i class="fas fa-xmark"></i></button>
+        </header>
+        <div class="ficha-body">
+          ${bloqueSolicitud(p)}
+
+          <dl class="ficha-facts">
+            <div><dt>Recibe</dt><dd>${esc(p.nombre_destinatario || '—')}</dd></div>
+            <div><dt>Dirección</dt><dd>${esc(p.direccion_entrega || '—')}</dd></div>
+            <div><dt>Teléfono</dt><dd>${esc(p.telefono_contacto || '—')}</dd></div>
+            <div><dt>Forma de pago</dt><dd>${esc(p.metodo_pago || '—')}</dd></div>
+            <div><dt>Fecha y hora</dt><dd>${fechaHora(p.fecha_registro)}</dd></div>
+          </dl>
+
+          <section class="ficha-section">
+            <h3>Libros</h3>
+            <table class="table pedido-items">
+              <thead><tr><th>Libro</th><th class="right">Cant.</th><th class="right">Precio</th><th class="right">Subtotal</th></tr></thead>
+              <tbody>
+                ${p.items.map(i => `
+                  <tr>
+                    <td><a class="link" href="index.html?libro=${i.id_libro}">${esc(i.titulo)}</a></td>
+                    <td class="right">${i.cantidad}</td>
+                    <td class="right">${window.formatPrecio(i.precio_unitario)}</td>
+                    <td class="right"><b>${window.formatPrecio(i.precio_unitario * i.cantidad)}</b></td>
+                  </tr>`).join('')}
+              </tbody>
+              <tfoot><tr><td colspan="3"><b>Total</b></td><td class="right"><b>${window.formatPrecio(p.total)}</b></td></tr></tfoot>
+            </table>
+          </section>
+
+          ${puedeSolicitar ? `
+          <section class="ficha-section" id="zona-devolucion">
+            <h3>¿Algo salió mal?</h3>
+            <p class="field-hint" style="margin-bottom:12px">Puedes pedir la devolución de este pedido. La tienda la revisa y, si la aprueba, verás el pedido como devuelto.</p>
+            <button type="button" class="btn btn-secondary" onclick="mostrarFormularioDevolucion(${p.id_pedido})">
+              <i class="fas fa-rotate-left" aria-hidden="true"></i> Solicitar devolución
+            </button>
+          </section>` : ''}
+        </div>`;
+
+      const sheet = document.getElementById('pedido-sheet');
+      sheet.classList.add('active');
+      sheet.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      sheet.querySelector('.sheet-close').focus();
+    }
+
+    /** Recuadro con el estado de la solicitud de devolución (si existe). */
+    function bloqueSolicitud(p) {
+      const s = p.solicitud;
+      if (!s) return '';
+      const motivo = `<b>${esc(s.motivo)}</b>${s.detalle ? ` · ${esc(s.detalle)}` : ''}`;
+      if (s.estado === 'Pendiente') {
+        return `<div class="aviso aviso-pendiente"><i class="fas fa-hourglass-half" aria-hidden="true"></i><div>
+          <b>Solicitaste la devolución el ${fechaCorta(s.fecha_solicitud)}.</b> La tienda la está revisando.<br>Motivo: ${motivo}</div></div>`;
+      }
+      if (s.estado === 'Aprobada') {
+        return `<div class="aviso aviso-devuelto"><i class="fas fa-rotate-left" aria-hidden="true"></i><div>
+          <b>Pedido devuelto.</b> La tienda aprobó tu devolución el ${fechaCorta(s.fecha_respuesta)}.<br>Motivo: ${motivo}
+          ${s.respuesta ? `<br>Respuesta: ${esc(s.respuesta)}` : ''}</div></div>`;
+      }
+      return `<div class="aviso aviso-rechazada"><i class="fas fa-circle-info" aria-hidden="true"></i><div>
+        <b>La tienda no aprobó la devolución</b> (${fechaCorta(s.fecha_respuesta)}).<br>Respuesta: ${esc(s.respuesta || '—')}<br>Tu motivo: ${motivo}</div></div>`;
+    }
+
+    /** Cambia el botón "Solicitar devolución" por el formulario con el motivo. */
+    function mostrarFormularioDevolucion(idPedido) {
+      document.getElementById('zona-devolucion').innerHTML = `
+        <h3>Solicitar devolución</h3>
+        <form id="form-devolucion" class="review-form" style="margin-top:0">
+          <label class="field"><span class="field-label">Motivo *</span>
+            <select class="select" name="motivo" required>
+              <option value="">Elige un motivo…</option>
+              ${MOTIVOS.map(m => `<option>${m}</option>`).join('')}
+            </select></label>
+          <label class="field"><span class="field-label" id="detalle-label">Cuéntanos más (opcional)</span>
+            <textarea class="textarea" name="detalle" maxlength="300" placeholder="Por ejemplo: la portada llegó rota."></textarea></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <button type="submit" class="btn btn-primary">Enviar solicitud</button>
+            <button type="button" class="btn btn-quiet" onclick="abrirDetalle(${idPedido})">Cancelar</button>
+          </div>
+        </form>`;
+
+      const form = document.getElementById('form-devolucion');
+      // Si elige "Otro motivo", la explicación pasa a ser obligatoria
+      form.motivo.addEventListener('change', () => {
+        const otro = form.motivo.value === 'Otro motivo';
+        form.detalle.required = otro;
+        document.getElementById('detalle-label').textContent = otro ? 'Cuéntanos el motivo *' : 'Cuéntanos más (opcional)';
+      });
+      form.motivo.focus();
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!form.reportValidity()) return;
+        const btn = form.querySelector('[type="submit"]');
+        btn.disabled = true;
+        try {
+          const res = await window.fetchAPI(`/api/pedidos/${idPedido}/solicitud-devolucion`, {
+            method: 'POST',
+            body: JSON.stringify({ motivo: form.motivo.value, detalle: form.detalle.value.trim() })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'No se pudo enviar la solicitud.');
+          window.showToast(data.message);
+          await cargarPedidos();
+          abrirDetalle(idPedido);      // se vuelve a abrir, ya con la solicitud "pendiente"
+        } catch (err) {
+          window.showToast(err.message, 'error');
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function cerrarDetalle() {
+      const sheet = document.getElementById('pedido-sheet');
+      sheet.classList.remove('active');
+      sheet.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+  </script>
 </body>
 </html>
