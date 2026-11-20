@@ -4,7 +4,7 @@ import {
   crearResena,
   eliminarResena
 } from '../controllers/resenas.controller.js';
-import { verificarToken, requerirAdmin } from '../middlewares/auth.middleware.js';
+import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -14,6 +14,6 @@ router.get('/', listarResenas);
 router.post('/', crearResena);
 
 // Eliminar reseñas es una tarea de moderación: solo Administrador / Dueño
-router.delete('/:id', verificarToken, requerirAdmin, eliminarResena);
+router.delete('/:id', verificarToken, requerirPermiso('resenas', 'editar'), eliminarResena);
 
 export default router;

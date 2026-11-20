@@ -10,6 +10,7 @@ import {
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import config from '../config/environments/index.js';
+import { getRolPorClave, getPermisosDeRol } from '../models/roles.model.js';
 
 /**
  * Controlador para listar todos los usuarios.
@@ -85,10 +86,10 @@ export const crearUsuario = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(usuario.password, salt);
 
-    // Solo un administrador autenticado puede crear cuentas con rol 'admin'.
-    // El registro público siempre crea cuentas de cliente.
+    // RF18: el registro público siempre crea clientes. Crear cuentas internas
+    // exige sesión con permiso de editar usuarios; crear admins exige ser admin.
     let rol = 'usuario';
-    if (usuario.rol === 'admin') {
+    if (usuario.rol && usuario.rol !== 'usuario') {
       const token = (req.headers['authorization'] || '').split(' ')[1];
       let solicitante = null;
       try {
@@ -96,10 +97,22 @@ export const crearUsuario = async (req, res) => {
       } catch {
         solicitante = null;
       }
-      if (!solicitante || solicitante.rol !== 'admin') {
-        return res.status(403).json({ error: 'Solo un administrador puede crear cuentas de administrador' });
+      if (!solicitante) {
+        return res.status(403).json({ error: 'Solo el personal autorizado puede crear cuentas internas' });
       }
-      rol = 'admin';
+      if (!(await getRolPorClave(usuario.rol))) {
+        return res.status(400).json({ error: 'Ese rol no existe' });
+      }
+      const [filaSolicitante] = await getUsuarioById(solicitante.id);
+      const rolSolicitante = filaSolicitante?.rol;
+      const permisos = await getPermisosDeRol(rolSolicitante);
+      if (!permisos.some(p => p.modulo === 'usuarios' && p.editar)) {
+        return res.status(403).json({ error: 'No tienes permiso para crear cuentas internas' });
+      }
+      if (usuario.rol === 'admin' && rolSolicitante !== 'admin') {
+        return res.status(403).json({ error: 'Solo un administrador puede crear administradores' });
+      }
+      rol = usuario.rol;
     }
 
     const newUser = await crearUsuarioModel({
@@ -148,8 +161,18 @@ export const actualizarRolUsuario = async (req, res) => {
     const { id } = req.params;
     const { rol } = req.body;
 
-    if (!['usuario', 'admin'].includes(rol)) {
-      return res.status(400).json({ error: 'Rol no válido. Debe ser "usuario" o "admin"' });
+    // RF18: nadie cambia su propio rol (evita que un admin se quite el acceso por error)
+    if (Number(id) === req.usuario.id) {
+      return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
+    }
+    // RF18: el rol debe existir en la tabla roles
+    if (!(await getRolPorClave(rol))) {
+      return res.status(400).json({ error: 'Ese rol no existe' });
+    }
+    // RF18: solo un administrador puede dar o quitar el rol de administrador
+    const [destino] = await getUsuarioById(id);
+    if ((rol === 'admin' || destino?.rol === 'admin') && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo un administrador puede dar o quitar el rol de administrador' });
     }
 
     await cambiarRolUsuario(id, rol);
@@ -163,7 +186,7 @@ export const actualizarRolUsuario = async (req, res) => {
  * Controlador para iniciar sesión de un usuario (Login).
  * Valida la contraseña mediante bcrypt.compare() con auto-migración de texto plano a bcrypt.
  * Genera y firma un token JWT válido por 24 horas y retorna los datos y rol del usuario.
- * 
+ *
  * @async
  * @function loginUsuario
  * @param {import('express').Request} req - Objeto de petición HTTP Express con email y password en req.body.
@@ -229,7 +252,8 @@ export const loginUsuario = async (req, res) => {
         rol: usuario.rol || 'usuario',
         telefono: usuario.telefono || null,
         direccion: usuario.direccion || null,
-        fecha_registro: usuario.fecha_registro || null
+        fecha_registro: usuario.fecha_registro || null,
+        permisos: await getPermisosDeRol(usuario.rol || 'usuario'),
       }
     });
   } catch (error) {

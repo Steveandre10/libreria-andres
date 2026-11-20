@@ -6,7 +6,7 @@ import routeResenas from './app/routes/resenas.routes.js';
 import config from './app/config/environments/index.js';
 import { verificarConexion } from './app/config/db.js';
 import { inicializarBaseDeDatos } from './app/config/initDb.js';
-
+import routeRoles from './app/routes/roles.routes.js';
 const app = express();
 
 // Configuración flexible de CORS para permitir Render y cualquier puerto de localhost durante desarrollo
@@ -56,6 +56,7 @@ app.get('/api/health/db', async (req, res) => {
 app.use('/api/usuarios', routeUsuario);
 app.use('/api/libros', routeLibros);
 app.use('/api/resenas', routeResenas);
+app.use('/api/roles', routeRoles);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);

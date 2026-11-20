@@ -11,7 +11,7 @@ import {
   crearResena
 } from '../controllers/resenas.controller.js';
 
-import { verificarToken, requerirAdmin } from '../middlewares/auth.middleware.js';
+import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -20,9 +20,9 @@ router.get('/', listarLibros);
 router.get('/:id', obtenerLibro);
 
 // Endpoints protegidos para Administrador / Dueño
-router.post('/', verificarToken, requerirAdmin, crearLibro);
-router.put('/:id', verificarToken, requerirAdmin, actualizarLibro);
-router.delete('/:id', verificarToken, requerirAdmin, eliminarLibro);
+router.post('/', verificarToken, requerirPermiso('libros', 'editar'), crearLibro);
+router.put('/:id', verificarToken, requerirPermiso('libros', 'editar'), actualizarLibro);
+router.delete('/:id', verificarToken, requerirPermiso('libros', 'editar'), eliminarLibro);
 
 // Reseñas anidadas por libro
 router.get('/:idLibro/resenas', listarResenas);
