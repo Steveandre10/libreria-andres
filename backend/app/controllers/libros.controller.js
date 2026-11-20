@@ -88,7 +88,7 @@ export const crearLibro = async (req, res) => {
       portada,
       descripcion,
       stock: cantidad
-    });
+    }, req.usuario.id); // RF14: quién registró el libro queda en el historial
 
     res.status(201).json({ message: 'Libro creado exitosamente', libro: nuevoLibro });
   } catch (error) {
@@ -117,7 +117,7 @@ export const actualizarLibro = async (req, res) => {
       }
     }
 
-    await actualizarLibroModel(id, datos);
+    await actualizarLibroModel(id, datos, req.usuario.id); // RF14: quién ajustó el stock
     const libroActualizado = await getLibroById(id);
     res.json({ message: 'Libro actualizado correctamente', libro: libroActualizado });
   } catch (error) {

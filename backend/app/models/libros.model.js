@@ -1,17 +1,13 @@
 import pool from '../config/db.js';
-
-/** RF13 · Librería dueña del inventario (la fila id 1 de la tabla librerias). */
-const ID_LIBRERIA = 1;
-
-/** RF13 · La disponibilidad sale del stock: con unidades = Disponible, sin unidades = Agotado. */
-const estadoPorStock = (stock) => (stock > 0 ? 'Disponible' : 'Agotado');
+// RF14: la librería, la regla de disponibilidad y el movimiento de stock viven en inventario.model.js
+import { ID_LIBRERIA, estadoPorStock, moverStock } from './inventario.model.js';
 
 /**
  * RF13 · Toda consulta de libros trae también su stock desde inventarios.
  * LEFT JOIN: si un libro aún no tiene fila de inventario, igual aparece (con stock 0).
  */
 const SELECT_LIBRO = `
-  SELECT l.*, COALESCE(i.stock_actual, 0) AS stock
+  SELECT l.*, CAST(COALESCE(i.stock_actual, 0) AS SIGNED) AS stock
   FROM libros l
   LEFT JOIN inventarios i ON i.id_libro = l.id_libro AND i.id_libreria = ${ID_LIBRERIA}`;
 
@@ -53,8 +49,9 @@ export const getLibroById = async (id) => {
  * RF13 · Registra un libro y su fila de inventario en UNA transacción:
  * o se guardan los dos, o ninguno.
  * @param {Object} libro - Datos del libro, incluido stock (cantidad inicial).
+ * @param {number|null} [idUsuario] - RF14: quién lo registró (queda en el historial).
  */
-export const crearLibro = async (libro) => {
+export const crearLibro = async (libro, idUsuario = null) => {
   const {
     titulo, ISBN = null, genero = 'General', autor = 'Anónimo',
     precio = 19.99, portada = null, descripcion = null, stock = 0
@@ -68,10 +65,12 @@ export const crearLibro = async (libro) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [titulo, ISBN, genero, autor, precio, portada, descripcion, estadoPorStock(stock), ID_LIBRERIA]
     );
+    // RF14: el inventario nace en 0 y la cantidad inicial entra como movimiento "Alta"
     await conn.query(
-      'INSERT INTO inventarios (stock_actual, stock_minimo, id_libreria, id_libro) VALUES (?, 0, ?, ?)',
-      [stock, ID_LIBRERIA, result.insertId]
+      'INSERT INTO inventarios (stock_actual, stock_minimo, id_libreria, id_libro) VALUES (0, 0, ?, ?)',
+      [ID_LIBRERIA, result.insertId]
     );
+    await moverStock(conn, { idLibro: result.insertId, nuevoStock: stock, tipo: 'Alta', idUsuario });
     await conn.commit();
     return {
       id_libro: result.insertId, titulo, ISBN, genero, autor, precio,
@@ -88,8 +87,9 @@ export const crearLibro = async (libro) => {
 /**
  * RF13 · Actualiza los datos del libro y, si viene, su stock.
  * La disponibilidad se recalcula sola a partir del stock.
+ * @param {number|null} [idUsuario] - RF14: quién hizo el ajuste (queda en el historial).
  */
-export const actualizarLibro = async (id, libro) => {
+export const actualizarLibro = async (id, libro, idUsuario = null) => {
   const { titulo, ISBN, genero, autor, precio, portada, descripcion, stock } = libro;
 
   const conn = await pool.getConnection();
@@ -109,14 +109,9 @@ export const actualizarLibro = async (id, libro) => {
     );
 
     if (stock !== undefined) {
-      // Si el libro no tenía fila de inventario la crea; si la tenía, cambia la cantidad
-      await conn.query(
-        `INSERT INTO inventarios (stock_actual, stock_minimo, id_libreria, id_libro)
-         VALUES (?, 0, ?, ?)
-         ON DUPLICATE KEY UPDATE stock_actual = VALUES(stock_actual)`,
-        [stock, ID_LIBRERIA, id]
-      );
-      await conn.query('UPDATE libros SET disponibilidad = ? WHERE id_libro = ?', [estadoPorStock(stock), id]);
+      // RF14: el ajuste manual pasa por moverStock, que actualiza la cantidad,
+      // la disponibilidad y deja el movimiento "Ajuste" en el historial
+      await moverStock(conn, { idLibro: Number(id), nuevoStock: stock, tipo: 'Ajuste', idUsuario });
     }
     await conn.commit();
   } catch (error) {
@@ -135,6 +130,11 @@ export const eliminarLibro = async (id) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    // RF14: primero el historial del inventario (su llave foránea impediría borrarlo)
+    await conn.query(
+      'DELETE m FROM movimientos m JOIN inventarios i ON i.id_inventario = m.id_inventario WHERE i.id_libro = ?',
+      [id]
+    );
     await conn.query('DELETE FROM inventarios WHERE id_libro = ?', [id]);
     await conn.query('DELETE FROM reseñas WHERE id_libro = ?', [id]);
     await conn.query('DELETE FROM libros WHERE id_libro = ?', [id]);

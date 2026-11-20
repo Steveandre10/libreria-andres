@@ -7,6 +7,8 @@ import config from './app/config/environments/index.js';
 import { verificarConexion } from './app/config/db.js';
 import { inicializarBaseDeDatos } from './app/config/initDb.js';
 import routeRoles from './app/routes/roles.routes.js';
+import routePedidos from './app/routes/pedidos.routes.js';   // RF14: ventas y devoluciones
+import routeInventario from './app/routes/inventario.routes.js'; // RF14: inventario en tiempo real
 const app = express();
 
 // Configuración flexible de CORS para permitir Render y cualquier puerto de localhost durante desarrollo
@@ -57,6 +59,8 @@ app.use('/api/usuarios', routeUsuario);
 app.use('/api/libros', routeLibros);
 app.use('/api/resenas', routeResenas);
 app.use('/api/roles', routeRoles);
+app.use('/api/pedidos', routePedidos);
+app.use('/api/inventario', routeInventario);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
