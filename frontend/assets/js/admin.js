@@ -192,7 +192,7 @@ function vistaResumen(root) {
             <li>
               <img class="thumb" src="${portada(l)}" alt="" onerror="this.src=window.PORTADA_DEFECTO" />
               <div class="grow"><b>${esc(l.titulo)}</b><span>${esc(l.autor)}</span></div>
-              <button type="button" class="btn btn-secondary btn-sm" data-requiere="libros:editar" onclick="cambiarDisponibilidad(${l.id_libro}, 'Disponible')">Marcar disponible</button>
+              <a class="btn btn-secondary btn-sm" data-requiere="libros:editar" href="admin.html#libros/${l.id_libro}">Reponer stock</a>
             </li>`).join('')}</ul>` : '<p class="list-empty">Todos los libros están disponibles.</p>'}
         </section>
 
@@ -260,7 +260,7 @@ function vistaLibros(root, param) {
 
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Libro</th><th>Género</th><th class="right">Precio</th><th class="right">Nota</th><th>Disponibilidad</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+            <thead><tr><th>Libro</th><th>Género</th><th class="right">Precio</th><th class="right">Stock</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
             <tbody id="libros-tbody"></tbody>
           </table>
           <div class="table-foot" id="libros-foot"></div>
@@ -312,8 +312,6 @@ function pintarTablaLibros(idSeleccionado) {
     return;
   }
 
-  // RF18: sin permiso de editar, la disponibilidad se muestra como texto
-  const puedeEditar = window.puede('libros', 'editar');
   tbody.innerHTML = filas.map(l => {
     const disp = l.disponibilidad !== 'Agotado';
     return `
@@ -321,14 +319,8 @@ function pintarTablaLibros(idSeleccionado) {
         <td><div class="title-cell"><img src="${portada(l)}" alt="" loading="lazy" onerror="this.src=window.PORTADA_DEFECTO" /><div><b>${esc(l.titulo)}</b><span>${esc(l.autor)}</span></div></div></td>
         <td><span class="genre" style="--g:${window.genreColor(l.genero)}"><i aria-hidden="true"></i>${esc(l.genero || 'General')}</span></td>
         <td class="right"><b>${window.formatPrecio(l.precio)}</b></td>
-        <td class="right">${window.ratingHTML(l.promedio_reseña)}</td>
-        <td>${puedeEditar ? `
-          <label class="switch">
-            <input type="checkbox" ${disp ? 'checked' : ''} onchange="cambiarDisponibilidad(${l.id_libro}, this.checked ? 'Disponible' : 'Agotado', this)" aria-label="Disponibilidad de ${esc(l.titulo)}" />
-            <span class="track" aria-hidden="true"></span><span class="lbl-on">Disponible</span><span class="lbl-off">Agotado</span>
-          </label>` : `
-          <span class="status ${disp ? 'status-ok' : 'status-out'}">${disp ? 'Disponible' : 'Agotado'}</span>`}
-        </td>
+        <td class="right"><b class="${l.stock > 0 ? '' : 'stock-cero'}">${l.stock}</b></td>  <!-- RF13 -->
+        <td><span class="status ${disp ? 'status-ok' : 'status-out'}">${disp ? 'Disponible' : 'Agotado'}</span></td>
         <td><div class="row-actions">
           <a class="icon-btn" href="admin.html#libros/${l.id_libro}" aria-label="Editar ${esc(l.titulo)}" title="Editar"><i class="fas fa-pen"></i></a>
           <button type="button" class="icon-btn danger" data-requiere="libros:editar" onclick="eliminarLibro(${l.id_libro})" aria-label="Eliminar ${esc(l.titulo)}" title="Eliminar"><i class="fas fa-trash-can"></i></button>
@@ -367,12 +359,13 @@ function fichaLibro(l) {
           <label class="field full"><span class="field-label">Título *</span><input class="input" name="titulo" required maxlength="200" value="${v('titulo')}" /></label>
           <label class="field full"><span class="field-label">Autor *</span><input class="input" name="autor" required maxlength="100" value="${v('autor')}" /></label>
           <label class="field"><span class="field-label">Precio (USD) *</span><input class="input num" name="precio" type="number" min="0" step="0.01" required value="${v('precio')}" /></label>
-          <label class="field"><span class="field-label">Disponibilidad</span><select class="select" name="disponibilidad">
-            <option ${!l || l.disponibilidad !== 'Agotado' ? 'selected' : ''}>Disponible</option>
-            <option ${l && l.disponibilidad === 'Agotado' ? 'selected' : ''}>Agotado</option></select></label>
+          <!-- RF13: cantidad en stock (la disponibilidad se calcula sola) -->
+          <label class="field"><span class="field-label">Cantidad en stock *</span><input class="input num" name="stock" type="number" min="0" step="1" required value="${l ? l.stock : 0}" />
+            <span class="field-hint">${!l ? 'Unidades con las que entra al catálogo.' : (l.stock > 0 ? 'Disponible en la tienda.' : 'Con 0 aparece como Agotado.')}</span></label>
           <label class="field"><span class="field-label">Género</span><input class="input" name="genero" list="dl-generos" maxlength="50" value="${v('genero')}" placeholder="Clásico" />
             <datalist id="dl-generos">${generos.map(g => `<option value="${esc(g)}">`).join('')}</datalist></label>
-          <label class="field"><span class="field-label">ISBN</span><input class="input mono" name="ISBN" maxlength="20" value="${v('ISBN')}" placeholder="978-…" /></label>
+          <label class="field"><span class="field-label">ISBN</span><input class="input mono" name="ISBN" maxlength="20" value="${v('ISBN')}" placeholder="978-…" />
+            <span class="field-hint">No puede repetirse entre libros.</span></label>
           <div class="field full">
             <label class="field-label" for="f-portada">Portada (URL de imagen)</label>
             <div class="cover-preview">
@@ -407,7 +400,7 @@ function conectarFormLibro(libro) {
       titulo: form.titulo.value.trim(),
       autor: form.autor.value.trim(),
       precio: parseFloat(form.precio.value),
-      disponibilidad: form.disponibilidad.value,
+      stock: parseInt(form.stock.value, 10),   // RF13: cantidad en stock
       genero: form.genero.value.trim() || 'General',
       ISBN: form.ISBN.value.trim() || null,
       portada: form.portada.value.trim() || window.PORTADA_DEFECTO,

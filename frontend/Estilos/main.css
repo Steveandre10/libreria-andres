@@ -855,3 +855,8 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* RF13: stock en cero resaltado en rojo */
+.stock-cero { color: var(--red); }
+/* RF13: aviso de últimas unidades en la tarjeta del libro */
+.pocas-unidades { font-size: var(--fs-xs); font-weight: 600; color: var(--red); margin-top: 2px; }

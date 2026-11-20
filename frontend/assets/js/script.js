@@ -188,19 +188,16 @@ function renderizarLibros() {
             <span class="price">${window.formatPrecio(libro.precio)}</span>
             ${window.ratingHTML(libro.promedio_reseña)}
           </div>
+          ${disponible && libro.stock <= 3 ? `<p class="pocas-unidades">Quedan ${libro.stock}</p>` : ''}  
           <div class="book-actions">
             <button type="button" class="btn btn-secondary btn-sm btn-block" onclick="agregarAlCarritoPorId(${libro.id_libro})" ${disponible ? '' : 'disabled'}>
               ${disponible ? '<i class="fas fa-plus" aria-hidden="true"></i> Añadir al carrito' : 'Sin existencias'}
             </button>
           </div>
-          ${admin ? `
-          <div class="admin-strip">
-            <label class="switch" title="Disponibilidad">
-              <input type="checkbox" ${disponible ? 'checked' : ''} onchange="toggleDisponibilidad(${libro.id_libro}, this)" />
-              <span class="track" aria-hidden="true"></span>
-              <span class="lbl-on">Disponible</span><span class="lbl-off">Agotado</span>
-            </label>
-            <a href="admin.html#libros/${libro.id_libro}"><i class="fas fa-pen" aria-hidden="true"></i> Editar</a>
+            ${admin ? `
+                      <div class="admin-strip">
+              <span class="${libro.stock > 0 ? '' : 'stock-cero'}"><b>${libro.stock}</b> en stock</span>
+              <a href="admin.html#libros/${libro.id_libro}"><i class="fas fa-pen" aria-hidden="true"></i> Editar</a>
           </div>` : ''}
         </div>
       </article>`;
