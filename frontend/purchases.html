@@ -161,7 +161,12 @@
                     <td class="right"><b>${window.formatPrecio(i.precio_unitario * i.cantidad)}</b></td>
                   </tr>`).join('')}
               </tbody>
-              <tfoot><tr><td colspan="3"><b>Total</b></td><td class="right"><b>${window.formatPrecio(p.total)}</b></td></tr></tfoot>
+              <tfoot>
+                <!-- RF23: desglose de la factura -->
+                <tr><td colspan="3">Subtotal</td><td class="right">${window.formatPrecio(p.subtotal ?? p.total)}</td></tr>
+                <tr class="sin-borde"><td colspan="3">IVA</td><td class="right">${window.formatPrecio(p.impuestos ?? 0)}</td></tr>
+                <tr class="sin-borde"><td colspan="3"><b>Total</b></td><td class="right"><b>${window.formatPrecio(p.total)}</b></td></tr>
+              </tfoot>
             </table>
           </section>
 

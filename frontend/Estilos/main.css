@@ -909,3 +909,16 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .solicitud-pendiente { background: #fffaf0; }
 .solicitud-acciones { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 #inv-solicitudes .grow span { display: block; }
+
+/* ---------- RF23: carrito y pago seguro ---------- */
+.cart-item.con-problema { background: var(--red-bg); }
+.problema-stock { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--red); }
+.qty button:disabled { opacity: 0.35; cursor: not-allowed; }
+.pago-seguro { display: flex; align-items: center; gap: 6px; justify-content: center; margin-top: 10px; }
+.pago-seguro i { color: var(--ok); }
+.checkout-totales { border-top: 1px solid var(--line); padding-top: 10px; }
+/* Aviso de conexión: verde cuando la página va por HTTPS */
+.note.conexion.segura { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-line); }
+.note.conexion.segura i { color: var(--ok); }
+.pedido-items tfoot tr.sin-borde td { border-top: 0; padding-top: 4px; }
+.cart-item.con-problema .line-total { color: var(--text-3); text-decoration: line-through; } /* RF23: no suma al total */

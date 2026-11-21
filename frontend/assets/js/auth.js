@@ -5,7 +5,17 @@
  */
 
 (function() {
-  /** URL base de la API: localhost en desarrollo, Render en producción. */
+  /**
+   * RF23 · Conexión segura: si la tienda publicada se abre por http://, se recarga por https://.
+   * En tu PC (localhost) se deja http porque ahí no hay certificado.
+   */
+  const esLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (!esLocal && window.location.protocol === 'http:') {
+    window.location.replace(`https://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`);
+    return;
+  }
+
+  /** URL base de la API: localhost en desarrollo, Render en producción (siempre https). */
   window.API_BASE = ['localhost', '127.0.0.1'].includes(window.location.hostname)
     ? 'http://localhost:3000'
     : 'https://libreria-andres-api.onrender.com';

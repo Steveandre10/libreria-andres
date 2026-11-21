@@ -36,7 +36,8 @@
           <button type="button" class="icon-btn sheet-close" onclick="closeModal('modal-checkout')" aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
         </header>
         <div class="ficha-body">
-          <p class="note"><i class="fas fa-circle-info" aria-hidden="true"></i><span>Al confirmar, apartamos tus libros del inventario. Los pagos en línea aún no están activos: coordinamos el pago contigo al entregar.</span></p>
+          <!-- RF23: dice la verdad sobre la conexión (HTTPS en producción, http solo en desarrollo local) -->
+          <p class="note conexion" id="aviso-conexion"></p>
           <form id="form-checkout" class="form-grid">
             <label class="field full">
               <span class="field-label">Nombre de quien recibe</span>
@@ -58,9 +59,15 @@
                 <label class="pay-option"><input type="radio" name="payment-method" value="efectivo" /><i class="fas fa-money-bill" aria-hidden="true"></i> Efectivo contra entrega</label>
               </div>
             </fieldset>
-            <div class="full" style="display:flex; justify-content:space-between; align-items:center; gap:16px; border-top:1px solid var(--line); padding-top:16px;">
-              <div><span class="field-label">Total</span><div class="price" id="checkout-total-val" style="font-size:1.4rem">$0.00</div></div>
-              <button type="submit" class="btn btn-primary btn-lg">Confirmar pedido</button>
+            <!-- RF23: lo que se va a cobrar, calculado por el servidor -->
+            <div class="full checkout-totales">
+              <div class="summary-row"><span>Subtotal</span><span id="checkout-subtotal">$0,00</span></div>
+              <div class="summary-row"><span id="checkout-iva-label">IVA</span><span id="checkout-iva">$0,00</span></div>
+              <div class="summary-row total"><span>Total a pagar</span><span id="checkout-total-val">$0,00</span></div>
+            </div>
+            <div class="full" style="display:flex; justify-content:space-between; align-items:center; gap:16px;">
+              <span class="field-hint">Al confirmar se aparta el stock y se genera tu factura.</span>
+              <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-lock" aria-hidden="true"></i> Confirmar y pagar</button>
             </div>
           </form>
         </div>
@@ -81,7 +88,10 @@
           <dl>
             <div><dt>Recibe</dt><dd id="receipt-name"></dd></div>
             <div><dt>Libros</dt><dd id="receipt-items-count"></dd></div>
-            <div><dt>Total</dt><dd id="receipt-total"></dd></div>
+            <div><dt>Subtotal</dt><dd id="receipt-subtotal"></dd></div>
+            <div><dt id="receipt-iva-label">IVA</dt><dd id="receipt-iva"></dd></div>
+            <div><dt>Total pagado</dt><dd id="receipt-total"></dd></div>
+            <div><dt>Factura</dt><dd id="receipt-factura"></dd></div>
           </dl>
           <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
             <a href="index.html" class="btn btn-primary">Seguir comprando</a>
@@ -94,6 +104,19 @@
 
   <script src="assets/js/auth.js"></script>
   <script>
+    /* ---------------------------------------------------------------
+       RF23 · CARRITO Y PAGO
+       - El carrito vive en el navegador (localStorage): libros y cantidades.
+       - Cada vez que se abre o cambia, se le pregunta al servidor (POST /api/pedidos/cotizar)
+         el precio y el stock ACTUALES y el subtotal, IVA y total. Así lo que ves es
+         exactamente lo que se cobra, y si algo se agotó te avisa antes de pagar.
+       - Al confirmar (POST /api/pedidos) el servidor vuelve a validar todo, descuenta el
+         stock, genera la factura y responde con el número del pedido.
+       --------------------------------------------------------------- */
+
+    /** Última cotización del servidor (líneas, totales y si se puede pagar). */
+    let cotizacion = null;
+
     document.addEventListener('DOMContentLoaded', () => {
       renderizarCarrito();
 
@@ -114,18 +137,38 @@
       });
     });
 
-    function totales(cart) {
-      const subtotal = cart.reduce((s, i) => s + (parseFloat(i.precio || 0) * (i.cantidad || 1)), 0);
-      const unidades = cart.reduce((s, i) => s + (i.cantidad || 1), 0);
-      return { subtotal, unidades };
+    /**
+     * RF23 · Le pide al servidor la cotización del carrito y guarda en el carrito
+     * el precio y el stock actuales (por si cambiaron desde que se agregó el libro).
+     */
+    async function cotizarCarrito(cart) {
+      const res = await window.fetchAPI('/api/pedidos/cotizar', {
+        method: 'POST',
+        body: JSON.stringify({ items: cart.map(i => ({ id_libro: i.id_libro, cantidad: i.cantidad || 1 })) })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No pudimos calcular el total del carrito.');
+
+      // Actualiza precio y stock guardados con los del servidor
+      data.lineas.forEach(linea => {
+        const item = cart.find(i => i.id_libro === linea.id_libro);
+        if (item && linea.existe) {
+          item.precio = linea.precio;
+          item.stock = linea.stock;
+        }
+      });
+      localStorage.setItem('libreria_carrito', JSON.stringify(cart));
+      return data;
     }
 
-    function renderizarCarrito() {
+    /** Pinta el carrito: libros, cantidades, avisos de stock y el resumen del cobro. */
+    async function renderizarCarrito() {
       const container = document.getElementById('cart-content');
       const cart = window.getCart();
       const esc = window.esc;
 
       if (!cart.length) {
+        cotizacion = null;
         document.getElementById('cart-sub').textContent = 'Todavía no has elegido libros.';
         container.innerHTML = `
           <div class="panel"><div class="empty">
@@ -137,53 +180,85 @@
         return;
       }
 
-      const { subtotal, unidades } = totales(cart);
+      try {
+        cotizacion = await cotizarCarrito(cart);
+      } catch (err) {
+        container.innerHTML = `<div class="panel"><div class="empty"><h2>No pudimos calcular tu carrito</h2><p>${esc(err.message)}</p>
+          <button type="button" class="btn btn-secondary" onclick="renderizarCarrito()">Reintentar</button></div></div>`;
+        return;
+      }
+
+      const unidades = cart.reduce((s, i) => s + (i.cantidad || 1), 0);
       document.getElementById('cart-sub').textContent = `${unidades} ${unidades === 1 ? 'libro' : 'libros'} en tu carrito.`;
+      const c = cotizacion;
 
       container.innerHTML = `
         <div class="cart-layout">
           <section class="panel" aria-label="Libros en el carrito">
-            ${cart.map((item, index) => `
-              <div class="cart-item">
+            ${cart.map((item, index) => {
+              const linea = c.lineas.find(l => l.id_libro === item.id_libro) || {};
+              const tope = linea.existe && (item.cantidad || 1) >= linea.stock;   // RF23: no pasar del stock
+              return `
+              <div class="cart-item ${linea.problema ? 'con-problema' : ''}">
                 <img src="${esc(item.portada)}" alt="" onerror="this.src=window.PORTADA_DEFECTO" />
                 <div class="info">
                   <h3>${esc(item.titulo)}</h3>
                   <p>${esc(item.autor)}</p>
-                  <span class="unit">${window.formatPrecio(item.precio)} c/u</span>
+                  <span class="unit">${window.formatPrecio(item.precio)} c/u${linea.existe ? ` · ${linea.stock} en stock` : ''}</span>
+                  ${linea.problema ? `
+                    <span class="problema-stock"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ${esc(linea.problema)}
+                      ${linea.existe && linea.stock > 0 ? `<button type="button" class="link" onclick="ajustarAStock(${index}, ${linea.stock})">Dejar ${linea.stock}</button>` : ''}
+                    </span>` : ''}
                 </div>
                 <div class="qty" role="group" aria-label="Cantidad de ${esc(item.titulo)}">
                   <button type="button" onclick="modificarCantidad(${index}, -1)" aria-label="Quitar uno"><i class="fas fa-minus"></i></button>
                   <span>${item.cantidad || 1}</span>
-                  <button type="button" onclick="modificarCantidad(${index}, 1)" aria-label="Añadir uno"><i class="fas fa-plus"></i></button>
+                  <button type="button" onclick="modificarCantidad(${index}, 1)" aria-label="Añadir uno" ${tope ? 'disabled title="No hay más unidades en stock"' : ''}><i class="fas fa-plus"></i></button>
                 </div>
-                <span class="line-total">${window.formatPrecio((parseFloat(item.precio) || 0) * (item.cantidad || 1))}</span>
+                <span class="line-total">${window.formatPrecio(linea.subtotal ?? 0)}</span>
                 <button type="button" class="icon-btn danger" onclick="eliminarDelCarrito(${index})" aria-label="Quitar ${esc(item.titulo)} del carrito"><i class="fas fa-trash-can"></i></button>
-              </div>`).join('')}
+              </div>`;
+            }).join('')}
           </section>
 
           <aside class="panel summary" aria-label="Resumen del pedido">
             <div class="panel-head"><h2>Resumen</h2></div>
             <div class="panel-body">
-              <div class="summary-row"><span>Subtotal</span><span>${window.formatPrecio(subtotal)}</span></div>
+              <div class="summary-row"><span>Subtotal</span><span>${window.formatPrecio(c.subtotal)}</span></div>
+              <div class="summary-row"><span>${esc(c.etiqueta_iva)} ${Math.round(c.tasa_iva * 100)}%</span><span>${window.formatPrecio(c.impuestos)}</span></div>
               <div class="summary-row"><span>Envío</span><span>Se coordina al confirmar</span></div>
-              <div class="summary-row total"><span>Total</span><span>${window.formatPrecio(subtotal)}</span></div>
-              <button type="button" class="btn btn-primary btn-lg btn-block" onclick="abrirModalCheckout()">Finalizar compra</button>
+              <div class="summary-row total"><span>Total</span><span>${window.formatPrecio(c.total)}</span></div>
+              ${c.se_puede_pagar ? '' : '<p class="problema-stock" style="margin-top:10px">Ajusta los libros marcados para poder pagar.</p>'}
+              <button type="button" class="btn btn-primary btn-lg btn-block" onclick="abrirModalCheckout()" ${c.se_puede_pagar ? '' : 'disabled'}>
+                <i class="fas fa-lock" aria-hidden="true"></i> Finalizar compra
+              </button>
+              <p class="field-hint pago-seguro"><i class="fas fa-shield-halved" aria-hidden="true"></i> Pago protegido: no guardamos datos de tarjetas.</p>
             </div>
           </aside>
         </div>`;
     }
 
+    /** Suma o resta una unidad (el + se bloquea al llegar al stock). */
     function modificarCantidad(index, cambio) {
       const cart = window.getCart();
       if (!cart[index]) return;
       const nueva = (cart[index].cantidad || 1) + cambio;
-      // RF14: no subir de las unidades que hay en inventario
+      // RF23: no subir de las unidades que hay en inventario
       if (cambio > 0 && cart[index].stock != null && nueva > cart[index].stock) {
         window.showToast(`Solo hay ${cart[index].stock} unidad(es) de «${cart[index].titulo}».`, 'error');
         return;
       }
       cart[index].cantidad = nueva;
       if (cart[index].cantidad <= 0) cart.splice(index, 1);
+      window.saveCart(cart);
+      renderizarCarrito();
+    }
+
+    /** RF23 · Botón "Dejar N": baja la cantidad al stock disponible. */
+    function ajustarAStock(index, stock) {
+      const cart = window.getCart();
+      if (!cart[index]) return;
+      cart[index].cantidad = stock;
       window.saveCart(cart);
       renderizarCarrito();
     }
@@ -196,12 +271,31 @@
       if (removed.length) window.showToast(`Quitaste «${removed[0].titulo}» del carrito.`, 'info');
     }
 
+    /** Abre el checkout con los totales de la última cotización y el estado de la conexión. */
     function abrirModalCheckout() {
-      const { subtotal, unidades } = totales(window.getCart());
-      document.getElementById('checkout-total-val').textContent = window.formatPrecio(subtotal);
+      if (!cotizacion || !cotizacion.se_puede_pagar) return;
+      const unidades = window.getCart().reduce((s, i) => s + (i.cantidad || 1), 0);
       document.getElementById('checkout-count').textContent = `${unidades} ${unidades === 1 ? 'libro' : 'libros'}`;
+      document.getElementById('checkout-subtotal').textContent = window.formatPrecio(cotizacion.subtotal);
+      document.getElementById('checkout-iva-label').textContent = `${cotizacion.etiqueta_iva} ${Math.round(cotizacion.tasa_iva * 100)}%`;
+      document.getElementById('checkout-iva').textContent = window.formatPrecio(cotizacion.impuestos);
+      document.getElementById('checkout-total-val').textContent = window.formatPrecio(cotizacion.total);
+      pintarAvisoConexion();
       document.getElementById('modal-checkout').classList.add('active');
       document.getElementById('order-name').focus();
+    }
+
+    /**
+     * RF23 · Muestra si la conexión es segura según el protocolo REAL de la página.
+     * En producción (Render) es https; en tu PC (localhost) es http y se dice claramente.
+     */
+    function pintarAvisoConexion() {
+      const aviso = document.getElementById('aviso-conexion');
+      const segura = location.protocol === 'https:';
+      aviso.classList.toggle('segura', segura);
+      aviso.innerHTML = segura
+        ? '<i class="fas fa-lock" aria-hidden="true"></i><span><b>Conexión segura (HTTPS).</b> Tus datos viajan cifrados. No pedimos ni guardamos números de tarjeta: el pago se coordina al entregar.</span>'
+        : '<i class="fas fa-circle-info" aria-hidden="true"></i><span><b>Modo desarrollo (http://localhost).</b> En la tienda publicada esta página va por HTTPS. No pedimos ni guardamos números de tarjeta.</span>';
     }
 
     function closeModal(id) {
@@ -209,16 +303,16 @@
     }
 
     /**
-     * RF14 · Envía el carrito al servidor. El servidor crea el pedido y la factura,
-     * descuenta cada libro del inventario y responde con el número real del pedido.
-     * Si algún libro ya no tiene unidades suficientes, responde 409 y no se cobra nada.
+     * RF14/RF23 · Envía el carrito al servidor. El servidor vuelve a validar precio y stock,
+     * crea el pedido y la factura (subtotal, IVA, total), descuenta el inventario y responde
+     * con el número del pedido. Si algo ya no alcanza, responde 409 y no se cobra nada.
      */
     async function procesarPedido() {
       const cart = window.getCart();
       if (!cart.length) return;
       const btn = document.querySelector('#form-checkout [type="submit"]');
       btn.disabled = true;
-      btn.textContent = 'Registrando…';
+      btn.innerHTML = 'Registrando…';
 
       try {
         const res = await window.fetchAPI('/api/pedidos', {
@@ -242,17 +336,23 @@
         document.getElementById('receipt-date').textContent = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
         document.getElementById('receipt-name').textContent = document.getElementById('order-name').value.trim();
         document.getElementById('receipt-items-count').textContent = String(pedido.unidades);
+        document.getElementById('receipt-subtotal').textContent = window.formatPrecio(pedido.subtotal);
+        document.getElementById('receipt-iva-label').textContent = `${pedido.etiqueta_iva} ${Math.round(pedido.tasa_iva * 100)}%`;
+        document.getElementById('receipt-iva').textContent = window.formatPrecio(pedido.impuestos);
         document.getElementById('receipt-total').textContent = window.formatPrecio(pedido.total);
+        document.getElementById('receipt-factura').textContent = window.numeroRegistro(pedido.id_factura);
 
         window.saveCart([]);
         renderizarCarrito();
         document.getElementById('modal-receipt').classList.add('active');
       } catch (err) {
-        // Ej.: "Solo quedan 1 unidad(es) de «Rayuela»." -> el cliente ajusta su carrito
+        // Ej.: "Solo quedan 1 unidad(es) de «Rayuela»." -> se vuelve a cotizar para mostrarlo en el carrito
         window.showToast(err.message, 'error');
+        closeModal('modal-checkout');
+        renderizarCarrito();
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Confirmar pedido';
+        btn.innerHTML = '<i class="fas fa-lock" aria-hidden="true"></i> Confirmar y pagar';
       }
     }
   </script>
