@@ -13,6 +13,12 @@ import routeTienda from './app/routes/tienda.routes.js';       // RF17: métodos
 import routeFacturas from './app/routes/facturas.routes.js';   // RF7: buscar y ver facturas
 import routeNotas from './app/routes/notas.routes.js';         // RF4: notas crédito/débito
 import routeReportes from './app/routes/reportes.routes.js';   // RF8/RF6/RF20/RF19: reportes y KPIs
+import routeFavoritos from './app/routes/favoritos.routes.js';             // RF24: lista de deseos
+import routeSuscripciones from './app/routes/suscripciones.routes.js';     // RF26: notificaciones
+import routeCasos from './app/routes/casos.routes.js';                     // RF28 + RF30: atención al cliente
+import routeAuditoria from './app/routes/auditoria.routes.js';             // RF15: logs
+import routeRecomendaciones from './app/routes/recomendaciones.routes.js'; // RF25: recomendados
+import { registrarActividad } from './app/services/logs.js';              // RF15: registra cada cambio
 import { verificarCorreo } from './app/services/correo.js';           // RF2: estado del correo al arrancar
 const app = express();
 
@@ -81,6 +87,7 @@ app.get('/api/health/db', async (req, res) => {
 });
 
 // Rutas principales de la API
+app.use('/api', registrarActividad);   // RF15: va antes de todas las rutas para auditarlas
 app.use('/api/usuarios', routeUsuario);
 app.use('/api/libros', routeLibros);
 app.use('/api/resenas', routeResenas);
@@ -91,6 +98,11 @@ app.use('/api/tienda', routeTienda);
 app.use('/api/facturas', routeFacturas);
 app.use('/api/notas', routeNotas);
 app.use('/api/reportes', routeReportes);
+app.use('/api/favoritos', routeFavoritos);
+app.use('/api/suscripciones', routeSuscripciones);
+app.use('/api/casos', routeCasos);
+app.use('/api/auditoria', routeAuditoria);
+app.use('/api/recomendaciones', routeRecomendaciones);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);

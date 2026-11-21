@@ -252,7 +252,7 @@ export const estadoInventario = async () => {
  *   ventasHoy      -> pedidos activos de hoy y su total facturado
  *   masVendidos    -> top 5 de los últimos 30 días
  *   pendientes     -> pedidos activos que aún no salen (estado de envío Pendiente o Pagado)
- *   tickets        -> solicitudes de devolución sin responder + facturas rechazadas por la DIAN
+ *   tickets        -> casos de soporte sin cerrar (RF30) + devoluciones sin responder + facturas rechazadas por la DIAN
  */
 export const kpis = async () => {
   const [[hoy]] = await pool.query(
@@ -289,13 +289,17 @@ export const kpis = async () => {
   const [[notif]] = await pool.query(
     'SELECT CAST(COUNT(*) AS SIGNED) AS n FROM notificaciones WHERE leida = 0'
   );
+  // RF30: los casos de atención al cliente sin cerrar también son tickets abiertos
+  const [[casos]] = await pool.query(
+    "SELECT CAST(COUNT(*) AS SIGNED) AS n FROM casos WHERE estado <> 'Cerrado'"
+  );
   const inventario = await estadoInventario();
 
   return {
     ventasHoy: { pedidos: hoy.pedidos, total: Number(hoy.total), ayer: Number(ayer.total) },
     masVendidos,
     pendientes: { total: pendientes.length, lista: pendientes.slice(0, 8) },
-    tickets: { total: sol.n + rech.n, devoluciones: sol.n, facturasRechazadas: rech.n },
+    tickets: { total: sol.n + rech.n + casos.n, casos: casos.n, devoluciones: sol.n, facturasRechazadas: rech.n },
     stockBajo: inventario.bajo + inventario.agotado,
     notificacionesSinLeer: notif.n,
     actualizado: new Date().toISOString()

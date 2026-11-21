@@ -1,3 +1,4 @@
+import { avisarNovedad } from '../services/avisos.js';   // RF26
 import {
   getAllLibros,
   getLibroById,
@@ -90,6 +91,7 @@ export const crearLibro = async (req, res) => {
       stock: cantidad
     }, req.usuario.id); // RF14: quién registró el libro queda en el historial
 
+    avisarNovedad(nuevoLibro);   // RF26: correo a los suscritos a novedades (en segundo plano)
     res.status(201).json({ message: 'Libro creado exitosamente', libro: nuevoLibro });
   } catch (error) {
     // RF13: la regla UNIQUE de la BD avisa si el ISBN ya existe

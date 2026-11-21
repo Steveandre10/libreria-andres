@@ -1,19 +1,19 @@
 import express from 'express';
-import {
-  listarResenas,
-  crearResena,
-  eliminarResena
-} from '../controllers/resenas.controller.js';
+import { listarResenas, moderarResena, eliminarResena } from '../controllers/resenas.controller.js';
 import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.js';
 
+/**
+ * @file resenas.routes.js
+ * @description RF21 · Moderación de reseñas (módulo "resenas" de RF18).
+ *   GET    /api/resenas?estado=Pendiente|Aprobada|Rechazada -> lista para moderar (resenas:ver)
+ *   PUT    /api/resenas/:id/moderar {decision, motivo}      -> aprobar / rechazar (resenas:editar)
+ *   DELETE /api/resenas/:id                                 -> eliminar (resenas:editar)
+ * Crear y leer las reseñas de UN libro va en /api/libros/:idLibro/resenas (RF29).
+ */
 const router = express.Router();
 
-// GET /api/resenas            -> todas las reseñas (vista del dueño)
-// GET /api/resenas?id_libro=1 -> reseñas de un libro
-router.get('/', listarResenas);
-router.post('/', crearResena);
-
-// Eliminar reseñas es una tarea de moderación: solo Administrador / Dueño
+router.get('/', verificarToken, requerirPermiso('resenas', 'ver'), listarResenas);
+router.put('/:id/moderar', verificarToken, requerirPermiso('resenas', 'editar'), moderarResena);
 router.delete('/:id', verificarToken, requerirPermiso('resenas', 'editar'), eliminarResena);
 
 export default router;

@@ -49,3 +49,19 @@ export const requerirPermiso = (modulo, accion = 'ver') => async (req, res, next
     res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * RF25 · Token OPCIONAL: si viene un token válido deja `req.usuario`; si no, sigue como visitante.
+ * Sirve para rutas públicas que se personalizan cuando hay sesión (recomendaciones).
+ */
+export const tokenOpcional = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (token) {
+    try {
+      req.usuario = jwt.verify(token, config.JWT_SECRET);
+    } catch {
+      // token vencido o inválido: se atiende como visitante
+    }
+  }
+  next();
+};

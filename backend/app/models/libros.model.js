@@ -148,7 +148,7 @@ export const eliminarLibro = async (id) => {
 };
 export const actualizarPromedioResena = async (idLibro) => {
   const [rows] = await pool.query(
-    'SELECT ROUND(AVG(calificacion), 2) as promedio FROM reseñas WHERE id_libro = ?',
+    "SELECT ROUND(AVG(calificacion), 2) as promedio FROM reseñas WHERE id_libro = ? AND estado = 'Aprobada'",   // RF21: solo aprobadas
     [idLibro]
   );
   const promedio = rows[0]?.promedio || 5.00;

@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { avisarReposicion } from '../services/avisos.js';   // RF26
 
 /**
  * @file inventario.model.js
@@ -40,9 +41,10 @@ export class ErrorInventario extends Error {
  * @param {'Venta'|'Devolución'|'Ajuste'|'Alta'} mov.tipo
  * @param {number|null} [mov.idUsuario] - Quién lo hizo.
  * @param {number|null} [mov.idPedido]  - Pedido de origen (ventas y devoluciones).
+ * @param {string|null} [mov.motivo]    - RF12: por qué se ajustó (conteo cíclico).
  * @returns {Promise<{anterior:number, nuevo:number}>}
  */
-export const moverStock = async (conn, { idLibro, cambio, nuevoStock, tipo, idUsuario = null, idPedido = null }) => {
+export const moverStock = async (conn, { idLibro, cambio, nuevoStock, tipo, idUsuario = null, idPedido = null, motivo = null }) => {
   // Si el libro todavía no tiene fila de inventario, se crea en 0
   await conn.query(
     `INSERT IGNORE INTO inventarios (stock_actual, stock_minimo, id_libreria, id_libro) VALUES (0, 0, ?, ?)`,
@@ -71,10 +73,13 @@ export const moverStock = async (conn, { idLibro, cambio, nuevoStock, tipo, idUs
   await conn.query('UPDATE inventarios SET stock_actual = ? WHERE id_inventario = ?', [nuevo, fila.id_inventario]);
   await conn.query('UPDATE libros SET disponibilidad = ? WHERE id_libro = ?', [estadoPorStock(nuevo), idLibro]);
   await conn.query(
-    `INSERT INTO movimientos (tipo_movimiento, cantidad, stock_anterior, stock_nuevo, id_inventario, id_usuario, id_pedido)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [tipo, Math.abs(nuevo - anterior), anterior, nuevo, fila.id_inventario, idUsuario, idPedido]
+    `INSERT INTO movimientos (tipo_movimiento, cantidad, stock_anterior, stock_nuevo, id_inventario, id_usuario, id_pedido, motivo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [tipo, Math.abs(nuevo - anterior), anterior, nuevo, fila.id_inventario, idUsuario, idPedido, motivo]
   );
+
+  // RF26 · Si estaba agotado y volvió a tener unidades, se avisa a quienes pidieron "Avisarme cuando llegue"
+  if (anterior === 0 && nuevo > 0) avisarReposicion(idLibro);
 
   // RF10 · ¿Este movimiento hizo que el libro llegara a su stock mínimo (o por debajo)?
   // Solo se avisa al CRUZAR la línea (antes estaba por encima, ahora no), así no se repite
