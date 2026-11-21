@@ -51,6 +51,11 @@
               <span class="field-label">Teléfono</span>
               <input type="tel" id="order-phone" class="input" placeholder="300 123 4567" required autocomplete="tel" />
             </label>
+            <!-- RF5: documento para la factura electrónica (vacío = consumidor final) -->
+            <label class="field full">
+              <span class="field-label">Cédula o NIT para la factura (opcional)</span>
+              <input type="text" id="order-documento" class="input mono" inputmode="numeric" maxlength="15" placeholder="Si lo dejas vacío, se factura como consumidor final" />
+            </label>
             <fieldset class="field full" style="border:0">
               <legend class="field-label" style="margin-bottom:6px">Forma de pago</legend>
               <!-- RF17: solo los métodos que el administrador tiene activos -->
@@ -92,6 +97,7 @@
             <div><dt>Forma de pago</dt><dd id="receipt-metodo"></dd></div>
             <div><dt>Total pagado</dt><dd id="receipt-total"></dd></div>
             <div><dt>Factura</dt><dd id="receipt-factura"></dd></div>
+            <div><dt>Validación DIAN</dt><dd id="receipt-dian"></dd></div>
           </dl>
           <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
             <!-- RF1: la factura se generó con la compra; se puede ver y descargar de inmediato -->
@@ -400,7 +406,8 @@
               telefono: document.getElementById('order-phone').value.trim()
             },
             metodo: Number(document.querySelector('input[name="payment-method"]:checked')?.value),   // RF17: id de metodos_pago
-            envio: getEnvioElegido()                                                                  // RF17: id de tipos_envio
+            envio: getEnvioElegido(),                                                                 // RF17: id de tipos_envio
+            documento: document.getElementById('order-documento').value.trim()                        // RF5: cédula/NIT (opcional)
           })
         });
         const data = await res.json().catch(() => ({}));
@@ -420,6 +427,9 @@
         document.getElementById('receipt-metodo').textContent = pedido.metodo_pago;
         document.getElementById('receipt-total').textContent = window.formatPrecio(pedido.total);
         document.getElementById('receipt-factura').textContent = window.numeroRegistro(pedido.id_factura);
+        // RF5: resultado de la validación electrónica (se hizo justo al terminar la compra)
+        const dianTexto = { Aceptada: 'Aceptada', Rechazada: 'En revisión por la tienda', Enviada: 'Enviada, en validación', Pendiente: 'Pendiente de envío' };
+        document.getElementById('receipt-dian').textContent = dianTexto[pedido.estado_dian] || '—';
         // RF1: enlaces a la factura recién generada (verla en pantalla o descargarla en PDF)
         document.getElementById('receipt-ver-factura').href = `factura.html?id=${pedido.id_factura}`;
         document.getElementById('receipt-pdf').href = `factura.html?id=${pedido.id_factura}&descargar=1`;

@@ -144,7 +144,8 @@
           <!-- RF1: la factura electrónica del pedido queda en el historial: verla o descargarla -->
           ${p.id_factura ? `
           <div class="factura-acciones">
-            <div><span class="field-label">Factura electrónica</span><b class="mono">${window.numeroRegistro(p.id_factura)}</b></div>
+            <div><span class="field-label">Factura electrónica</span><b class="mono">${window.numeroRegistro(p.id_factura)}</b>
+              <span class="field-hint">${{ Aceptada: 'Validada · con CUFE', Rechazada: 'En revisión por la tienda', Enviada: 'En validación', Pendiente: 'Pendiente de validación' }[p.estado_dian] || ''}</span></div>
             <a class="btn btn-secondary btn-sm" href="factura.html?id=${p.id_factura}" target="_blank" rel="noopener"><i class="fas fa-eye" aria-hidden="true"></i> Ver</a>
             <a class="btn btn-primary btn-sm" href="factura.html?id=${p.id_factura}&descargar=1" target="_blank" rel="noopener"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</a>
           </div>` : ''}

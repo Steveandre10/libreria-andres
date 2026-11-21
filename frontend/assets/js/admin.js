@@ -1350,6 +1350,7 @@ async function cargarConfiguracion() {
 async function vistaConfiguracion(root, param) {
   try {
     await cargarConfiguracion();
+    await cargarConfigFE();   // RF5
   } catch (e) {
     root.innerHTML = errorConexion('la configuración');
     return;
@@ -1383,6 +1384,8 @@ async function vistaConfiguracion(root, param) {
           </ul>
           ${activos === 0 ? '<p class="list-empty" style="color:var(--red)">Sin métodos activos, los clientes no pueden pagar.</p>' : ''}
         </section>
+
+        ${seccionFacturacionElectronica(editar)}
 
         <section class="panel">
           <div class="panel-head">
@@ -1434,6 +1437,71 @@ async function vistaConfiguracion(root, param) {
   const side = document.getElementById('cfg-side');
   side.addEventListener('click', (e) => { if (e.target === side) location.hash = 'configuracion'; });
   if (abierto) conectarFormEnvio(envioSel);
+  conectarFormFE();   // RF5
+}
+
+/* ---------------- RF5 · Datos del emisor para la facturación electrónica ---------------- */
+let cfgFE = {};
+
+async function cargarConfigFE() {
+  const res = await window.fetchAPI('/api/facturas/electronica/configuracion');
+  if (!res.ok) throw await leerError(res, 'No se pudo cargar la facturación electrónica');
+  cfgFE = (await res.json()).configuracion;
+}
+
+/** Sección del panel con NIT, resolución, prefijo, ambiente y proveedor. */
+function seccionFacturacionElectronica(editar) {
+  const completo = /^\d{9,10}$/.test(cfgFE.fe_nit_emisor || '') && cfgFE.fe_resolucion;
+  return `
+    <section class="panel" style="margin-bottom:24px">
+      <div class="panel-head">
+        <h2>Facturación electrónica</h2>
+        <span class="status ${completo ? 'status-ok' : 'status-out'}">${completo ? 'Datos completos' : 'Faltan datos'}</span>
+      </div>
+      <form class="panel-body" id="form-fe" novalidate>
+        <p class="note" style="margin-bottom:14px"><i class="fas fa-circle-info" aria-hidden="true"></i>
+          <span>${cfgFE.fe_proveedor === 'api'
+            ? 'Conectado a un proveedor tecnológico real. Las facturas aceptadas quedan validadas ante la DIAN.'
+            : '<b>Modo pruebas (simulador).</b> Las facturas se validan con las reglas de la DIAN y obtienen CUFE y QR, pero <b>no tienen validez legal</b>. Para facturar de verdad se necesita habilitación ante la DIAN, certificado digital y un proveedor tecnológico.'}</span></p>
+        <fieldset class="rol-campos" ${editar ? '' : 'disabled'}>
+          <div class="form-grid">
+            <label class="field"><span class="field-label">NIT del emisor *</span><input class="input mono" name="fe_nit_emisor" inputmode="numeric" maxlength="10" value="${esc(cfgFE.fe_nit_emisor)}" placeholder="900123456 (sin DV)" /></label>
+            <label class="field"><span class="field-label">Razón social</span><input class="input" name="fe_razon_social" maxlength="100" value="${esc(cfgFE.fe_razon_social)}" /></label>
+            <label class="field"><span class="field-label">Resolución de facturación *</span><input class="input mono" name="fe_resolucion" maxlength="30" value="${esc(cfgFE.fe_resolucion)}" placeholder="18760000001" /></label>
+            <label class="field"><span class="field-label">Prefijo</span><input class="input mono" name="fe_prefijo" maxlength="4" value="${esc(cfgFE.fe_prefijo)}" placeholder="SETP" /></label>
+            <label class="field"><span class="field-label">Ambiente</span><select class="select" name="fe_ambiente">
+              <option value="2" ${cfgFE.fe_ambiente !== '1' ? 'selected' : ''}>Pruebas (habilitación)</option>
+              <option value="1" ${cfgFE.fe_ambiente === '1' ? 'selected' : ''}>Producción</option></select></label>
+            <label class="field"><span class="field-label">Proveedor</span><select class="select" name="fe_proveedor">
+              <option value="simulador" ${cfgFE.fe_proveedor !== 'api' ? 'selected' : ''}>Simulador (pruebas)</option>
+              <option value="api" ${cfgFE.fe_proveedor === 'api' ? 'selected' : ''}>Proveedor tecnológico (API)</option></select></label>
+            <label class="field full"><span class="field-label">Clave técnica</span><input class="input mono" name="fe_clave_tecnica" type="password" autocomplete="off" placeholder="${esc(cfgFE.fe_clave_tecnica_mascara || 'Sin configurar')} · déjalo vacío para no cambiarla" /></label>
+          </div>
+        </fieldset>
+        ${editar ? '<div class="ficha-actions" style="border:0; margin-top:6px; padding-top:6px"><button type="submit" class="btn btn-primary">Guardar datos de facturación</button></div>' : ''}
+      </form>
+    </section>`;
+}
+
+function conectarFormFE() {
+  const form = document.getElementById('form-fe');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const datos = Object.fromEntries(new FormData(form).entries());
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      const res = await window.fetchAPI('/api/facturas/electronica/configuracion', { method: 'PUT', body: JSON.stringify(datos) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudieron guardar los datos');
+      window.showToast(data.message);
+      enrutar();
+    } catch (err) {
+      window.showToast(err.message, 'error');
+      btn.disabled = false;
+    }
+  });
 }
 
 /** Ícono según el nombre del método de pago. */
@@ -1576,7 +1644,15 @@ window.eliminarEnvio = async function(id) {
    y cada resultado se puede ABRIR o DESCARGAR (PDF) en factura.html.
    --------------------------------------------------------------- */
 
-const fact = { filtros: { pedido: '', desde: '', hasta: '' }, resultados: [] };
+const fact = { filtros: { pedido: '', desde: '', hasta: '', estado_dian: '' }, resultados: [] };
+
+/** RF5 · Cómo se ve cada estado de la factura ante la DIAN. */
+const ESTADO_DIAN = {
+  Pendiente: { clase: 'status-admin', texto: 'Sin enviar' },
+  Enviada:   { clase: 'status-bajo',  texto: 'Enviada' },
+  Aceptada:  { clase: 'status-ok',    texto: 'Aceptada' },
+  Rechazada: { clase: 'status-out',   texto: 'Rechazada' }
+};
 
 /** RF7 · Vista del módulo Facturas. */
 function vistaFacturas(root) {
@@ -1600,6 +1676,13 @@ function vistaFacturas(root) {
           <span class="field-label">Hasta</span>
           <input class="input" type="date" name="hasta" value="${esc(f.hasta)}" />
         </label>
+        <label class="field">
+          <span class="field-label">Estado DIAN</span>
+          <select class="select" name="estado_dian">
+            <option value="">Todos</option>
+            ${Object.keys(ESTADO_DIAN).map(k => `<option value="${k}" ${f.estado_dian === k ? 'selected' : ''}>${ESTADO_DIAN[k].texto}</option>`).join('')}
+          </select>
+        </label>
         <div class="filtros-acciones">
           <button type="submit" class="btn btn-primary"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> Buscar</button>
           <button type="button" class="btn btn-quiet" id="facturas-limpiar">Limpiar</button>
@@ -1614,7 +1697,7 @@ function vistaFacturas(root) {
 
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Factura</th><th>Pedido</th><th>Fecha</th><th>Cliente</th><th>Pago</th><th class="right">Total</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+          <thead><tr><th>Factura</th><th>Pedido</th><th>Fecha</th><th>Cliente</th><th class="right">Total</th><th>Pedido</th><th>DIAN</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody id="facturas-tbody"><tr><td colspan="8"><p class="list-empty">Buscando…</p></td></tr></tbody>
         </table>
         <div class="table-foot" id="facturas-foot"></div>
@@ -1627,10 +1710,11 @@ function vistaFacturas(root) {
     f.pedido = form.pedido.value.trim();
     f.desde = form.desde.value;
     f.hasta = form.hasta.value;
+    f.estado_dian = form.estado_dian.value;
     buscarFacturas();
   });
   document.getElementById('facturas-limpiar').addEventListener('click', () => {
-    fact.filtros = { pedido: '', desde: '', hasta: '' };
+    fact.filtros = { pedido: '', desde: '', hasta: '', estado_dian: '' };
     vistaFacturas(root);
   });
   // Atajos: llenan el rango de fechas y buscan
@@ -1651,7 +1735,7 @@ function vistaFacturas(root) {
 
 /** RF7 · Pide al servidor las facturas según los filtros y pinta la tabla. */
 async function buscarFacturas() {
-  const { pedido, desde, hasta } = fact.filtros;
+  const { pedido, desde, hasta, estado_dian } = fact.filtros;
   const tbody = document.getElementById('facturas-tbody');
   const foot = document.getElementById('facturas-foot');
 
@@ -1666,6 +1750,7 @@ async function buscarFacturas() {
   if (pedido) params.set('pedido', pedido);
   if (desde) params.set('desde', desde);
   if (hasta) params.set('hasta', hasta);
+  if (estado_dian) params.set('estado_dian', estado_dian);
 
   try {
     const res = await window.fetchAPI(`/api/facturas?${params}`);
@@ -1676,7 +1761,7 @@ async function buscarFacturas() {
     return;
   }
 
-  const hayFiltro = pedido || desde || hasta;
+  const hayFiltro = pedido || desde || hasta || estado_dian;
   foot.textContent = hayFiltro
     ? `${fact.resultados.length} factura(s) encontradas`
     : `Últimas ${fact.resultados.length} facturas`;
@@ -1696,12 +1781,55 @@ async function buscarFacturas() {
       <td class="mono">${window.numeroRegistro(x.id_pedido)}</td>
       <td class="mono">${fechaHora(x.fecha_registro || x.fecha_emision)}</td>
       <td><b>${esc(x.cliente || '—')}</b><div class="field-hint">${esc(x.cliente_email || '')}</div></td>
-      <td>${esc(x.metodo_pago || '—')}</td>
       <td class="right"><b>${window.formatPrecio(x.total)}</b></td>
-      <td><span class="status ${x.estado_pedido === 'Devuelto' ? 'status-out' : 'status-ok'}">${x.estado_pedido === 'Devuelto' ? 'Anulada (devuelto)' : 'Vigente'}</span></td>
+      <td><span class="status ${x.estado_pedido === 'Devuelto' ? 'status-out' : 'status-ok'}">${x.estado_pedido === 'Devuelto' ? 'Anulada' : 'Vigente'}</span></td>
+      <td class="celda-dian">
+        <span class="status ${ESTADO_DIAN[x.estado_dian]?.clase || 'status-admin'}">${ESTADO_DIAN[x.estado_dian]?.texto || x.estado_dian}</span>
+        ${x.estado_dian === 'Rechazada' && x.motivo_rechazo ? `<div class="motivo-dian" title="${esc(x.motivo_rechazo)}">${esc(x.motivo_rechazo)}</div>` : ''}
+        ${x.estado_dian === 'Aceptada' && x.cufe ? `<div class="field-hint mono" title="CUFE ${esc(x.cufe)}">CUFE ${esc(x.cufe.slice(0, 10))}…</div>` : ''}
+      </td>
       <td><div class="row-actions">
+        ${x.estado_dian !== 'Aceptada' && x.estado_pedido !== 'Devuelto' ? `
+          <button type="button" class="icon-btn" data-requiere="facturas:editar" onclick="corregirDocumentoFactura(${x.id_factura})" aria-label="Corregir documento del cliente" title="Corregir cédula/NIT del cliente"><i class="fas fa-id-card"></i></button>
+          <button type="button" class="btn btn-secondary btn-sm" data-requiere="facturas:editar" onclick="enviarFacturaDian(${x.id_factura}, this)">${x.estado_dian === 'Pendiente' ? 'Enviar' : 'Reenviar'}</button>` : ''}
         <a class="icon-btn" href="factura.html?id=${x.id_factura}" target="_blank" rel="noopener" aria-label="Abrir factura ${window.numeroRegistro(x.id_factura)}" title="Abrir"><i class="fas fa-eye"></i></a>
         <a class="icon-btn" href="factura.html?id=${x.id_factura}&descargar=1" target="_blank" rel="noopener" aria-label="Descargar factura ${window.numeroRegistro(x.id_factura)} en PDF" title="Descargar PDF"><i class="fas fa-file-arrow-down"></i></a>
       </div></td>
     </tr>`).join('');
+  aplicarPermisos(tbody);
 }
+
+/** RF5 · Envía o reenvía una factura al servicio de validación (DIAN / proveedor). */
+window.enviarFacturaDian = async function(idFactura, boton) {
+  if (boton) { boton.disabled = true; boton.textContent = 'Enviando…'; }
+  try {
+    const res = await window.fetchAPI(`/api/facturas/${idFactura}/enviar`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo enviar la factura');
+    window.showToast(data.estado === 'Rechazada' ? `Rechazada: ${data.motivo}` : data.message, data.estado === 'Aceptada' ? 'success' : 'error');
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+  buscarFacturas();
+};
+
+/** RF5 · Corrige la cédula/NIT del cliente antes de reenviar (p. ej. si la DIAN lo rechazó). */
+window.corregirDocumentoFactura = async function(idFactura) {
+  const x = fact.resultados.find(f => f.id_factura === idFactura);
+  const documento = await pedirTexto({
+    titulo: `Documento del cliente · factura ${window.numeroRegistro(idFactura)}`,
+    mensaje: `Actual: ${x && x.documento_adquiriente ? x.documento_adquiriente : 'consumidor final (222222222222)'}. Escribe la cédula o NIT, solo números. Para consumidor final escribe 222222222222.`,
+    placeholder: '1020304050',
+    confirmar: 'Guardar documento'
+  });
+  if (documento === null) return;
+  try {
+    const res = await window.fetchAPI(`/api/facturas/${idFactura}/documento`, { method: 'PUT', body: JSON.stringify({ documento }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo guardar el documento');
+    window.showToast(data.message);
+    buscarFacturas();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};

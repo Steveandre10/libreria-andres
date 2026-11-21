@@ -939,3 +939,8 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 /* RF1: bloque de la factura en el detalle del pedido */
 .factura-acciones { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
 .factura-acciones > div { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 2px; }
+
+/* ---------- RF5: estado DIAN en la tabla de facturas ---------- */
+.celda-dian { min-width: 150px; }
+.motivo-dian { max-width: 240px; margin-top: 4px; font-size: var(--fs-xs); color: var(--red); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (min-width: 761px) { .filtros-facturas { grid-template-columns: 140px 165px 165px 160px auto; } }

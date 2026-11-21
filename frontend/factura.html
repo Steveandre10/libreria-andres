@@ -12,6 +12,8 @@
   <style>
     /* RF7 · Hoja de factura: se ve como un documento en pantalla y se imprime limpia (A4/Carta) */
     .factura-pagina { max-width: 820px; margin: 0 auto; padding: 28px 20px 60px; }
+    .factura-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+    .aviso-correo { margin: 0 0 14px; font-size: var(--fs-sm); color: var(--ok); background: var(--ok-bg); border: 1px solid var(--ok-line); border-radius: 6px; padding: 10px 12px; }
     .factura-barra { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
     .factura { background: #fff; border: 1px solid var(--line); border-radius: var(--r-ficha); box-shadow: var(--shadow-2); padding: 36px 40px; position: relative; }
     .factura-cabecera { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 2px solid var(--red-rule); }
@@ -28,6 +30,18 @@
     .factura-totales .summary-row { padding: 5px 0; }
     .factura-pie { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--text-3); }
     .sello-anulada { position: absolute; bottom: 110px; left: 50px; transform: rotate(-10deg); font-family: var(--font-mono); font-weight: 700; font-size: 1.3rem; letter-spacing: 0.1em; color: var(--red-rule); border: 3px solid var(--red-rule); border-radius: 6px; padding: 6px 14px; opacity: 0.85; }
+    /* RF5 · Bloque de validación electrónica (estado, CUFE y QR) */
+    .factura-dian { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: start; margin-top: 24px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 6px; }
+    .factura-dian h2 { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin-bottom: 8px; }
+    .factura-dian dl > div { display: flex; gap: 10px; padding: 3px 0; font-size: var(--fs-sm); }
+    .factura-dian dt { min-width: 120px; color: var(--text-3); }
+    .cufe { font-family: var(--font-mono); font-size: 0.68rem; word-break: break-all; line-height: 1.4; }
+    .qr-dian { width: 132px; height: 132px; padding: 6px; background: #fff; border: 1px solid var(--line); }
+    .qr-dian img, .qr-dian canvas { width: 100% !important; height: 100% !important; }
+    .aviso-pruebas { margin-top: 10px; font-size: var(--fs-xs); color: #6b4700; background: #fdf3dc; border: 1px solid #ecd39a; border-radius: 4px; padding: 6px 10px; }
+    .eventos-dian { margin-top: 18px; }
+    .eventos-dian li { font-size: var(--fs-xs); padding: 5px 0; border-bottom: 1px solid var(--line-soft); list-style: none; }
+    @media (max-width: 600px) { .factura-dian { grid-template-columns: 1fr; } }
     @media (max-width: 600px) { .factura { padding: 22px 18px; } .factura-cabecera, .factura-datos { grid-template-columns: 1fr; flex-direction: column; } .factura-numero { text-align: left; } }
     @media print {
       @page { margin: 14mm; }
@@ -43,12 +57,19 @@
   <main class="factura-pagina">
     <div class="factura-barra no-imprimir">
       <button type="button" class="btn btn-quiet" onclick="history.length > 1 ? history.back() : window.close()"><i class="fas fa-arrow-left" aria-hidden="true"></i> Volver</button>
-      <button type="button" class="btn btn-primary" id="btn-pdf" disabled><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</button>
+      <!-- RF2: imprimir o enviar la factura a otro correo -->
+      <div class="factura-botones">
+        <button type="button" class="btn btn-secondary" id="btn-imprimir" disabled><i class="fas fa-print" aria-hidden="true"></i> Imprimir</button>
+        <button type="button" class="btn btn-secondary" id="btn-correo" disabled><i class="fas fa-envelope" aria-hidden="true"></i> Enviar a otro correo</button>
+        <button type="button" class="btn btn-primary" id="btn-pdf" disabled><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</button>
+      </div>
     </div>
     <article class="factura" id="factura"><p class="field-hint">Cargando factura…</p></article>
     <p class="field-hint no-imprimir" style="margin-top:12px; text-align:center">Para descargar, en la ventana de impresión elige <b>«Guardar como PDF»</b>.</p>
   </main>
 
+  <!-- RF5: librería para dibujar el código QR de validación -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="assets/js/auth.js"></script>
   <script>
     /**
@@ -70,6 +91,7 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'No se pudo cargar la factura.');
         const f = data.factura;
+        const eventos = data.eventos || [];   // RF5: solo llegan para el personal
         const numero = window.numeroRegistro(f.id_factura);
         const anulada = f.estado_pedido === 'Devuelto';
 
@@ -81,7 +103,7 @@
           <header class="factura-cabecera">
             <div class="factura-marca"><strong>Librería Andrés</strong><span>Cultivando el saber literario</span></div>
             <div class="factura-numero">
-              <h1>Factura de venta ${numero}</h1>
+              <h1>${f.estado_dian === 'Aceptada' ? 'Factura electrónica de venta' : 'Factura de venta'} ${f.numero_fe ? esc(f.numero_fe) : numero}</h1>
               <div>Pedido ${window.numeroRegistro(f.id_pedido)}</div>
               <div>${fecha(f.fecha_registro || f.fecha_emision)}</div>
             </div>
@@ -90,7 +112,8 @@
           <section class="factura-datos">
             <div>
               <h2>Cliente</h2>
-              <p><b>${esc(f.cliente || '—')}</b><br>${esc(f.cliente_email || '')}</p>
+              <p><b>${esc(f.cliente || '—')}</b><br>${esc(f.cliente_email || '')}<br>
+                ${f.consumidor_final ? 'Consumidor final (222222222222)' : `C.C./NIT ${esc(f.documento_adquiriente)}`}</p>
             </div>
             <div>
               <h2>Entrega</h2>
@@ -127,19 +150,149 @@
             <div class="summary-row total"><span>Total</span><span>${window.formatPrecio(f.total)}</span></div>
           </div>
 
+          ${bloqueDian(f, eventos)}
+
           <footer class="factura-pie">
             ${anulada ? '<b>Esta factura quedó anulada porque el pedido fue devuelto.</b><br>' : ''}
             Los libros están excluidos de IVA en Colombia (Ley 98 de 1993). Documento generado por Librería Andrés.
           </footer>`;
 
+        // RF5: dibuja el QR con el texto de validación (estructura de la DIAN)
+        const caja_qr = document.getElementById('qr-dian');
+        if (caja_qr && f.qr_dian && window.QRCode) {
+          new QRCode(caja_qr, { text: f.qr_dian, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+        }
+
         const btn = document.getElementById('btn-pdf');
         btn.disabled = false;
         btn.addEventListener('click', () => window.print());
+
+        // RF2: "Imprimir" abre la vista de impresión del navegador (la hoja ya está preparada para papel)
+        const btnImprimir = document.getElementById('btn-imprimir');
+        btnImprimir.disabled = false;
+        btnImprimir.addEventListener('click', () => window.print());
+
+        // RF2: "Enviar a otro correo"
+        const btnCorreo = document.getElementById('btn-correo');
+        btnCorreo.disabled = false;
+        btnCorreo.addEventListener('click', () => enviarAOtroCorreo(f.id_factura, numero));
         if (params.get('descargar') === '1') setTimeout(() => window.print(), 400);
       } catch (err) {
         caja.innerHTML = `<div class="empty"><i class="fas fa-file-circle-xmark" aria-hidden="true"></i><h2>No pudimos abrir la factura</h2><p>${esc(err.message)}</p></div>`;
       }
     });
+
+    /**
+     * RF2 · Pide un correo (con validación) y le envía la factura.
+     * El servidor arma el correo con el detalle de la factura y responde con la confirmación.
+     */
+    function enviarAOtroCorreo(idFactura, numero) {
+      const esc = window.esc;
+      const dlg = document.createElement('dialog');
+      dlg.className = 'confirm';
+      dlg.innerHTML = `
+        <form class="ficha" method="dialog" novalidate>
+          <div class="ficha-head"><h2>Enviar factura ${esc(numero)}</h2></div>
+          <div class="ficha-body">
+            <label class="field">
+              <span class="field-label">Correo de destino</span>
+              <input class="input" type="email" name="correo" required maxlength="150" placeholder="nombre@correo.com" autocomplete="email" />
+              <span class="field-hint" id="correo-error" style="color:var(--red)"></span>
+            </label>
+            <div class="confirm-actions">
+              <button type="button" class="btn btn-secondary" data-cancelar>Cancelar</button>
+              <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar</button>
+            </div>
+          </div>
+        </form>`;
+      document.body.appendChild(dlg);
+      const form = dlg.querySelector('form');
+      const cerrar = () => { dlg.close(); dlg.remove(); };
+      dlg.querySelector('[data-cancelar]').addEventListener('click', cerrar);
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); cerrar(); });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const correo = form.correo.value.trim();
+        const error = dlg.querySelector('#correo-error');
+        // Validación en el navegador (el servidor también valida)
+        if (!form.correo.checkValidity() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(correo)) {
+          error.textContent = 'Escribe un correo válido, por ejemplo nombre@correo.com.';
+          form.correo.focus();
+          return;
+        }
+        error.textContent = '';
+        const btn = form.querySelector('[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Enviando…';
+        try {
+          const res = await window.fetchAPI(`/api/facturas/${idFactura}/enviar-correo`, { method: 'POST', body: JSON.stringify({ correo }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'No se pudo enviar el correo.');
+          cerrar();
+          window.showToast(data.message);   // RF2: confirmación
+          mostrarAvisoCorreo(data);
+        } catch (err) {
+          error.textContent = err.message;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar';
+        }
+      });
+
+      dlg.showModal();
+      form.correo.focus();
+    }
+
+    /** Aviso fijo de confirmación; en modo pruebas incluye el enlace para ver el correo. */
+    function mostrarAvisoCorreo(data) {
+      document.querySelector('.aviso-correo')?.remove();
+      const aviso = document.createElement('p');
+      aviso.className = 'aviso-correo no-imprimir';
+      aviso.innerHTML = `<i class="fas fa-circle-check" aria-hidden="true"></i> ${window.esc(data.message)}` +
+        (data.vista_previa ? ` <span class="field-hint">(Modo pruebas: el correo no llega a la bandeja real.) <a class="link" href="${window.esc(data.vista_previa)}" target="_blank" rel="noopener">Ver el correo enviado</a></span>` : '');
+      document.querySelector('.factura-pagina').insertBefore(aviso, document.getElementById('factura'));
+    }
+
+    /**
+     * RF5 · Bloque de validación electrónica de la factura:
+     * - Aceptada: CUFE + QR (y aviso si es ambiente de pruebas / simulador).
+     * - Rechazada: motivo (el personal la corrige y reenvía desde el panel).
+     * - Enviada / Pendiente: aún en validación.
+     */
+    function bloqueDian(f, eventos) {
+      const esc = window.esc;
+      const fecha = (v) => v ? new Date(v).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      const estados = {
+        Aceptada: ['status-ok', 'Aceptada'], Rechazada: ['status-out', 'Rechazada'],
+        Enviada: ['status-bajo', 'Enviada · en validación'], Pendiente: ['status-admin', 'Pendiente de envío']
+      };
+      const [clase, texto] = estados[f.estado_dian] || estados.Pendiente;
+      const pruebas = f.ambiente_dian !== 'Producción' || /simulador/i.test(f.proveedor_fe || '');
+
+      return `
+        <section class="factura-dian">
+          <div>
+            <h2>Validación electrónica</h2>
+            <dl>
+              <div><dt>Estado</dt><dd><span class="status ${clase}">${texto}</span></dd></div>
+              ${f.numero_fe ? `<div><dt>N.º electrónico</dt><dd class="mono">${esc(f.numero_fe)}</dd></div>` : ''}
+              ${f.estado_dian === 'Aceptada' ? `
+                <div><dt>Validada</dt><dd>${fecha(f.fecha_validacion_dian)}</dd></div>
+                <div><dt>CUFE</dt><dd class="cufe">${esc(f.cufe)}</dd></div>` : ''}
+              ${f.estado_dian === 'Rechazada' ? `<div><dt>Motivo</dt><dd style="color:var(--red)">${esc(f.motivo_rechazo || '—')}</dd></div>` : ''}
+              ${f.estado_dian === 'Enviada' && f.motivo_rechazo ? `<div><dt>Nota</dt><dd>${esc(f.motivo_rechazo)}</dd></div>` : ''}
+            </dl>
+            ${f.estado_dian === 'Aceptada' && pruebas ? `<p class="aviso-pruebas"><b>Ambiente de pruebas (${esc(f.proveedor_fe || 'simulador')}).</b> CUFE calculado con la fórmula de la DIAN, sin validez legal hasta conectar un proveedor tecnológico habilitado.</p>` : ''}
+            ${f.estado_dian !== 'Aceptada' ? '<p class="field-hint" style="margin-top:8px">La tienda está validando esta factura. Cuando sea aceptada verás aquí su CUFE y el código QR.</p>' : ''}
+          </div>
+          ${f.estado_dian === 'Aceptada' ? '<div class="qr-dian" id="qr-dian" title="QR de validación"></div>' : ''}
+        </section>
+        ${eventos.length ? `
+          <section class="eventos-dian no-imprimir">
+            <h2 class="field-label">Historial de envíos (solo personal)</h2>
+            <ul>${eventos.map(e => `<li><b>${esc(e.estado)}</b> · ${fecha(e.fecha)} · ${esc(e.usuario || 'Automático')} — ${esc(e.mensaje || '')}</li>`).join('')}</ul>
+          </section>` : ''}`;
+    }
   </script>
 </body>
 </html>
