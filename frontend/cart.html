@@ -53,16 +53,14 @@
             </label>
             <fieldset class="field full" style="border:0">
               <legend class="field-label" style="margin-bottom:6px">Forma de pago</legend>
-              <div class="pay-options">
-                <label class="pay-option"><input type="radio" name="payment-method" value="tarjeta" checked /><i class="fas fa-credit-card" aria-hidden="true"></i> Tarjeta crédito o débito</label>
-                <label class="pay-option"><input type="radio" name="payment-method" value="nequi" /><i class="fas fa-mobile-screen" aria-hidden="true"></i> Nequi o Daviplata</label>
-                <label class="pay-option"><input type="radio" name="payment-method" value="efectivo" /><i class="fas fa-money-bill" aria-hidden="true"></i> Efectivo contra entrega</label>
-              </div>
+              <!-- RF17: solo los métodos que el administrador tiene activos -->
+              <div class="pay-options" id="pay-options"></div>
             </fieldset>
             <!-- RF23: lo que se va a cobrar, calculado por el servidor -->
             <div class="full checkout-totales">
               <div class="summary-row"><span>Subtotal</span><span id="checkout-subtotal">$0,00</span></div>
               <div class="summary-row"><span id="checkout-iva-label">IVA</span><span id="checkout-iva">$0,00</span></div>
+              <div class="summary-row"><span id="checkout-envio-label">Envío</span><span id="checkout-envio">$0,00</span></div>
               <div class="summary-row total"><span>Total a pagar</span><span id="checkout-total-val">$0,00</span></div>
             </div>
             <div class="full" style="display:flex; justify-content:space-between; align-items:center; gap:16px;">
@@ -90,6 +88,8 @@
             <div><dt>Libros</dt><dd id="receipt-items-count"></dd></div>
             <div><dt>Subtotal</dt><dd id="receipt-subtotal"></dd></div>
             <div><dt id="receipt-iva-label">IVA</dt><dd id="receipt-iva"></dd></div>
+            <div><dt id="receipt-envio-label">Envío</dt><dd id="receipt-envio"></dd></div>
+            <div><dt>Forma de pago</dt><dd id="receipt-metodo"></dd></div>
             <div><dt>Total pagado</dt><dd id="receipt-total"></dd></div>
             <div><dt>Factura</dt><dd id="receipt-factura"></dd></div>
           </dl>
@@ -116,6 +116,27 @@
 
     /** Última cotización del servidor (líneas, totales y si se puede pagar). */
     let cotizacion = null;
+
+    /** RF17 · Métodos de pago y envíos ACTIVOS (los configura el administrador). */
+    let opciones = { metodos_pago: [], envios: [] };
+
+    /** RF17 · Envío elegido por el cliente (se recuerda entre visitas). */
+    const getEnvioElegido = () => Number(localStorage.getItem('libreria_envio')) || null;
+    const setEnvioElegido = (id) => localStorage.setItem('libreria_envio', String(id));
+
+    /**
+     * RF17 · Pide al servidor las opciones activas. Se llama al abrir el carrito y otra vez
+     * al abrir el pago, así un cambio del administrador se ve sin recargar la página.
+     */
+    async function cargarOpciones() {
+      const res = await window.fetchAPI('/api/tienda/opciones');
+      if (!res.ok) throw new Error('No pudimos cargar las formas de pago y envío.');
+      opciones = await res.json();
+      // Si el envío que tenía elegido ya no está activo, se elige el primero disponible
+      if (!opciones.envios.some(e => e.id_tipo_envio === getEnvioElegido()) && opciones.envios.length) {
+        setEnvioElegido(opciones.envios[0].id_tipo_envio);
+      }
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
       renderizarCarrito();
@@ -144,7 +165,10 @@
     async function cotizarCarrito(cart) {
       const res = await window.fetchAPI('/api/pedidos/cotizar', {
         method: 'POST',
-        body: JSON.stringify({ items: cart.map(i => ({ id_libro: i.id_libro, cantidad: i.cantidad || 1 })) })
+        body: JSON.stringify({
+          items: cart.map(i => ({ id_libro: i.id_libro, cantidad: i.cantidad || 1 })),
+          envio: getEnvioElegido()   // RF17
+        })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No pudimos calcular el total del carrito.');
@@ -181,6 +205,7 @@
       }
 
       try {
+        await cargarOpciones();          // RF17
         cotizacion = await cotizarCarrito(cart);
       } catch (err) {
         container.innerHTML = `<div class="panel"><div class="empty"><h2>No pudimos calcular tu carrito</h2><p>${esc(err.message)}</p>
@@ -226,16 +251,48 @@
             <div class="panel-body">
               <div class="summary-row"><span>Subtotal</span><span>${window.formatPrecio(c.subtotal)}</span></div>
               <div class="summary-row"><span>${esc(c.etiqueta_iva)} ${Math.round(c.tasa_iva * 100)}%</span><span>${window.formatPrecio(c.impuestos)}</span></div>
-              <div class="summary-row"><span>Envío</span><span>Se coordina al confirmar</span></div>
+              <div class="summary-row"><span>Envío${c.envio ? ` · ${esc(c.envio.nombre)}` : ''}</span><span>${c.costo_envio === 0 ? 'Gratis' : window.formatPrecio(c.costo_envio)}</span></div>
               <div class="summary-row total"><span>Total</span><span>${window.formatPrecio(c.total)}</span></div>
-              ${c.se_puede_pagar ? '' : '<p class="problema-stock" style="margin-top:10px">Ajusta los libros marcados para poder pagar.</p>'}
-              <button type="button" class="btn btn-primary btn-lg btn-block" onclick="abrirModalCheckout()" ${c.se_puede_pagar ? '' : 'disabled'}>
+
+              <!-- RF17: tipos de envío configurados por el administrador -->
+              <fieldset class="envio-opciones">
+                <legend class="field-label">Tipo de envío</legend>
+                ${opciones.envios.length ? opciones.envios.map(e => `
+                  <label class="pay-option">
+                    <input type="radio" name="envio" value="${e.id_tipo_envio}" ${e.id_tipo_envio === getEnvioElegido() ? 'checked' : ''} onchange="elegirEnvio(${e.id_tipo_envio})" />
+                    <span class="grow"><b>${esc(e.nombre)}</b><small>${esc(e.tiempo_estimado || e.descripcion || '')}</small></span>
+                    <b>${e.costo === 0 ? 'Gratis' : window.formatPrecio(e.costo)}</b>
+                  </label>`).join('')
+                : '<p class="problema-stock">Por ahora no hay envíos disponibles.</p>'}
+              </fieldset>
+
+              ${c.lineas.some(l => l.problema) ? '<p class="problema-stock" style="margin-top:10px">Ajusta los libros marcados para poder pagar.</p>' : ''}
+              ${!opciones.metodos_pago.length ? '<p class="problema-stock" style="margin-top:10px">La tienda no tiene formas de pago activas en este momento.</p>' : ''}
+              <button type="button" class="btn btn-primary btn-lg btn-block" onclick="abrirModalCheckout()" ${c.se_puede_pagar && opciones.metodos_pago.length ? '' : 'disabled'}>
                 <i class="fas fa-lock" aria-hidden="true"></i> Finalizar compra
               </button>
               <p class="field-hint pago-seguro"><i class="fas fa-shield-halved" aria-hidden="true"></i> Pago protegido: no guardamos datos de tarjetas.</p>
             </div>
           </aside>
         </div>`;
+    }
+
+    /** RF17 · El cliente cambia el tipo de envío: se recalcula el total con el servidor. */
+    function elegirEnvio(id) {
+      setEnvioElegido(id);
+      renderizarCarrito();
+    }
+
+    /** RF17 · Pinta las formas de pago activas como opciones del checkout. */
+    function pintarFormasDePago() {
+      const iconos = (n) => /tarjeta/i.test(n) ? 'fa-credit-card' : (/nequi|daviplata/i.test(n) ? 'fa-mobile-screen' : (/efectivo/i.test(n) ? 'fa-money-bill' : 'fa-wallet'));
+      const anterior = document.querySelector('input[name="payment-method"]:checked')?.value;
+      document.getElementById('pay-options').innerHTML = opciones.metodos_pago.map((m, i) => `
+        <label class="pay-option">
+          <input type="radio" name="payment-method" value="${m.id_metodo_pago}" required
+            ${String(m.id_metodo_pago) === anterior || (!anterior && i === 0) ? 'checked' : ''} />
+          <i class="fas ${iconos(m.nombre_metodo)}" aria-hidden="true"></i> ${window.esc(m.nombre_metodo)}
+        </label>`).join('');
     }
 
     /** Suma o resta una unidad (el + se bloquea al llegar al stock). */
@@ -272,8 +329,23 @@
     }
 
     /** Abre el checkout con los totales de la última cotización y el estado de la conexión. */
-    function abrirModalCheckout() {
-      if (!cotizacion || !cotizacion.se_puede_pagar) return;
+    async function abrirModalCheckout() {
+      // RF17: volver a consultar por si el administrador cambió algo mientras el carrito estaba abierto
+      try {
+        await cargarOpciones();
+        cotizacion = await cotizarCarrito(window.getCart());
+      } catch (err) {
+        window.showToast(err.message, 'error');
+        return;
+      }
+      if (!cotizacion.se_puede_pagar || !opciones.metodos_pago.length) {
+        window.showToast('Algo cambió en tu carrito o en las opciones de la tienda. Revísalo antes de pagar.', 'error');
+        renderizarCarrito();
+        return;
+      }
+      pintarFormasDePago();
+      document.getElementById('checkout-envio-label').textContent = `Envío · ${cotizacion.envio.nombre}`;
+      document.getElementById('checkout-envio').textContent = cotizacion.costo_envio === 0 ? 'Gratis' : window.formatPrecio(cotizacion.costo_envio);
       const unidades = window.getCart().reduce((s, i) => s + (i.cantidad || 1), 0);
       document.getElementById('checkout-count').textContent = `${unidades} ${unidades === 1 ? 'libro' : 'libros'}`;
       document.getElementById('checkout-subtotal').textContent = window.formatPrecio(cotizacion.subtotal);
@@ -324,7 +396,8 @@
               direccion: document.getElementById('order-address').value.trim(),
               telefono: document.getElementById('order-phone').value.trim()
             },
-            metodo: document.querySelector('input[name="payment-method"]:checked').value
+            metodo: Number(document.querySelector('input[name="payment-method"]:checked')?.value),   // RF17: id de metodos_pago
+            envio: getEnvioElegido()                                                                  // RF17: id de tipos_envio
           })
         });
         const data = await res.json().catch(() => ({}));
@@ -339,6 +412,9 @@
         document.getElementById('receipt-subtotal').textContent = window.formatPrecio(pedido.subtotal);
         document.getElementById('receipt-iva-label').textContent = `${pedido.etiqueta_iva} ${Math.round(pedido.tasa_iva * 100)}%`;
         document.getElementById('receipt-iva').textContent = window.formatPrecio(pedido.impuestos);
+        document.getElementById('receipt-envio-label').textContent = `Envío · ${pedido.tipo_envio}`;
+        document.getElementById('receipt-envio').textContent = pedido.costo_envio === 0 ? 'Gratis' : window.formatPrecio(pedido.costo_envio);
+        document.getElementById('receipt-metodo').textContent = pedido.metodo_pago;
         document.getElementById('receipt-total').textContent = window.formatPrecio(pedido.total);
         document.getElementById('receipt-factura').textContent = window.numeroRegistro(pedido.id_factura);
 

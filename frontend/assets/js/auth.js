@@ -176,6 +176,7 @@
         ${window.puede('usuarios') ? link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios') : ''}
         ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas') : ''}
         ${window.puede('roles') ? link('admin.html#roles', 'fa-user-shield', 'Roles y permisos', seccion === 'roles') : ''}
+        ${window.puede('configuracion') ? link('admin.html#configuracion', 'fa-gear', 'Configuración', seccion === 'configuracion') : ''}
         <div class="rail-group">Tienda</div>
         ${link('index.html', 'fa-store', 'Ver catálogo', false)}`;
     } else {

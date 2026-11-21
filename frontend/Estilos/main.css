@@ -922,3 +922,10 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .note.conexion.segura i { color: var(--ok); }
 .pedido-items tfoot tr.sin-borde td { border-top: 0; padding-top: 4px; }
 .cart-item.con-problema .line-total { color: var(--text-3); text-decoration: line-through; } /* RF23: no suma al total */
+
+/* ---------- RF17: selector de tipo de envío en el carrito ---------- */
+.envio-opciones { border: 0; display: grid; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.envio-opciones legend { margin-bottom: 8px; }
+.envio-opciones .pay-option { gap: 10px; }
+.envio-opciones .pay-option .grow { flex: 1; min-width: 0; }
+.envio-opciones .pay-option small { display: block; color: var(--text-3); font-size: var(--fs-xs); }

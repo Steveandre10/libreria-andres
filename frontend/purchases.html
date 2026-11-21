@@ -145,6 +145,7 @@
             <div><dt>Dirección</dt><dd>${esc(p.direccion_entrega || '—')}</dd></div>
             <div><dt>Teléfono</dt><dd>${esc(p.telefono_contacto || '—')}</dd></div>
             <div><dt>Forma de pago</dt><dd>${esc(p.metodo_pago || '—')}</dd></div>
+            <div><dt>Envío</dt><dd>${esc(p.tipo_envio || 'Se coordinó con la tienda')}</dd></div>
             <div><dt>Fecha y hora</dt><dd>${fechaHora(p.fecha_registro)}</dd></div>
           </dl>
 
@@ -165,6 +166,7 @@
                 <!-- RF23: desglose de la factura -->
                 <tr><td colspan="3">Subtotal</td><td class="right">${window.formatPrecio(p.subtotal ?? p.total)}</td></tr>
                 <tr class="sin-borde"><td colspan="3">IVA</td><td class="right">${window.formatPrecio(p.impuestos ?? 0)}</td></tr>
+                <tr class="sin-borde"><td colspan="3">Envío</td><td class="right">${Number(p.costo_envio) ? window.formatPrecio(p.costo_envio) : 'Gratis'}</td></tr>
                 <tr class="sin-borde"><td colspan="3"><b>Total</b></td><td class="right"><b>${window.formatPrecio(p.total)}</b></td></tr>
               </tfoot>
             </table>

@@ -6,7 +6,7 @@
 
 const esc = (v) => window.esc(v);
 /** RF18 · Módulos de la administración y su nombre visible (mismos que en el backend). */
-const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos' }; // RF14: + inventario
+const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion
 const MODULOS = Object.keys(NOMBRES_MODULO);
 const estado = {
   libros: [],
@@ -97,7 +97,7 @@ function enrutar() {
   actualizarConteoRail();
 
   const root = document.getElementById('admin-root');
-  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles };
+  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
 
   // RF18 · criterio 3: sin permiso para ver el módulo -> acceso denegado
   if (!vistas[seccion] || !window.puede(seccion, 'ver')) {
@@ -1326,3 +1326,243 @@ function pedirTexto({ titulo, mensaje, placeholder = '', confirmar = 'Aceptar' }
     form.texto.focus();
   });
 }
+
+
+/* ---------------------------------------------------------------
+   CONFIGURACIÓN DE LA TIENDA (RF17)
+   - Métodos de pago: interruptor para activar/desactivar cada uno.
+   - Tipos de envío: tabla con su costo; se crean y editan en la ficha de la derecha.
+   Todo se guarda en la BD (metodos_pago y tipos_envio) y el carrito lo lee al abrirse,
+   así que los cambios se ven en la siguiente compra sin tocar código.
+   Rutas del panel: #configuracion, #configuracion/nuevo, #configuracion/<id del envío>
+   --------------------------------------------------------------- */
+
+const cfg = { metodos_pago: [], envios: [] };
+
+/** RF17 · Trae todas las opciones (activas e inactivas). */
+async function cargarConfiguracion() {
+  const res = await window.fetchAPI('/api/tienda/configuracion');
+  if (!res.ok) throw await leerError(res, 'No se pudo cargar la configuración');
+  Object.assign(cfg, await res.json());
+}
+
+/** RF17 · Vista del módulo Configuración. */
+async function vistaConfiguracion(root, param) {
+  try {
+    await cargarConfiguracion();
+  } catch (e) {
+    root.innerHTML = errorConexion('la configuración');
+    return;
+  }
+  const editar = window.puede('configuracion', 'editar');
+  const envioSel = param && param !== 'nuevo' ? cfg.envios.find(e => String(e.id_tipo_envio) === param) : null;
+  const abierto = (param === 'nuevo' && editar) || !!envioSel;
+  const activos = cfg.metodos_pago.filter(m => m.activo).length;
+
+  root.innerHTML = `
+    <section class="admin-section workspace">
+      <div>
+        <header class="page-head">
+          <div><h1>Configuración</h1><p>Métodos de pago y envíos que ve el cliente al comprar. Los cambios aplican de inmediato.</p></div>
+        </header>
+
+        <section class="panel" style="margin-bottom:24px">
+          <div class="panel-head"><h2>Métodos de pago</h2><span class="field-hint">${activos} de ${cfg.metodos_pago.length} activos</span></div>
+          <ul class="list" id="cfg-metodos">
+            ${cfg.metodos_pago.map(m => `
+              <li>
+                <span class="mov-icono ${m.activo ? 'sube' : 'baja'}"><i class="fas ${iconoMetodo(m.nombre_metodo)}" aria-hidden="true"></i></span>
+                <div class="grow"><b>${esc(m.nombre_metodo)}</b><span>${esc(m.descripcion || '')}</span></div>
+                ${editar ? `
+                  <label class="switch">
+                    <input type="checkbox" ${m.activo ? 'checked' : ''} onchange="cambiarMetodoPago(${m.id_metodo_pago}, this)" aria-label="Activar ${esc(m.nombre_metodo)}" />
+                    <span class="track" aria-hidden="true"></span><span class="lbl-on">Activo</span><span class="lbl-off">Inactivo</span>
+                  </label>`
+                : `<span class="status ${m.activo ? 'status-ok' : 'status-out'}">${m.activo ? 'Activo' : 'Inactivo'}</span>`}
+              </li>`).join('')}
+          </ul>
+          ${activos === 0 ? '<p class="list-empty" style="color:var(--red)">Sin métodos activos, los clientes no pueden pagar.</p>' : ''}
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Tipos de envío</h2>
+            <a class="btn btn-primary btn-sm" href="admin.html#configuracion/nuevo" data-requiere="configuracion:editar"><i class="fas fa-plus" aria-hidden="true"></i> Nuevo envío</a>
+          </div>
+          <div class="table-wrap" style="border:0; border-radius:0">
+            <table class="table">
+              <thead><tr><th>Envío</th><th>Tiempo</th><th class="right">Costo</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+              <tbody id="cfg-envios">
+                ${cfg.envios.length ? cfg.envios.map(e => `
+                  <tr class="clickable ${envioSel && envioSel.id_tipo_envio === e.id_tipo_envio ? 'selected' : ''}" data-id="${e.id_tipo_envio}">
+                    <td><b>${esc(e.nombre)}</b><div class="field-hint">${esc(e.descripcion || '')}</div></td>
+                    <td>${esc(e.tiempo_estimado || '—')}</td>
+                    <td class="right"><b>${e.costo === 0 ? 'Gratis' : window.formatPrecio(e.costo)}</b></td>
+                    <td>${editar ? `
+                      <label class="switch">
+                        <input type="checkbox" ${e.activo ? 'checked' : ''} onchange="cambiarEnvioActivo(${e.id_tipo_envio}, this)" aria-label="Activar ${esc(e.nombre)}" />
+                        <span class="track" aria-hidden="true"></span><span class="lbl-on">Activo</span><span class="lbl-off">Inactivo</span>
+                      </label>`
+                      : `<span class="status ${e.activo ? 'status-ok' : 'status-out'}">${e.activo ? 'Activo' : 'Inactivo'}</span>`}
+                    </td>
+                    <td><div class="row-actions">
+                      <a class="icon-btn" href="admin.html#configuracion/${e.id_tipo_envio}" aria-label="Editar ${esc(e.nombre)}" title="Editar"><i class="fas fa-pen"></i></a>
+                      <button type="button" class="icon-btn danger" data-requiere="configuracion:editar" onclick="eliminarEnvio(${e.id_tipo_envio})" aria-label="Eliminar ${esc(e.nombre)}" title="Eliminar"><i class="fas fa-trash-can"></i></button>
+                    </div></td>
+                  </tr>`).join('')
+                : '<tr><td colspan="5"><p class="list-empty">No hay tipos de envío. Crea al menos uno para que los clientes puedan comprar.</p></td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside class="workspace-side ${abierto ? '' : 'is-empty'}" id="cfg-side">
+        ${abierto ? fichaEnvio(envioSel) : `
+          <div class="ficha">
+            <div class="ficha-head"><div class="ficha-call"><span>Envíos</span><span>Costos</span></div><h2>Ningún envío abierto</h2></div>
+            <div class="ficha-body"><p style="color:var(--text-2)">Elige un tipo de envío para cambiar su nombre, tiempo o costo${editar ? ', o crea uno nuevo' : ''}.</p></div>
+          </div>`}
+      </aside>
+    </section>`;
+
+  document.getElementById('cfg-envios').addEventListener('click', (e) => {
+    if (e.target.closest('.switch, button, a')) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) location.hash = `configuracion/${tr.dataset.id}`;
+  });
+  const side = document.getElementById('cfg-side');
+  side.addEventListener('click', (e) => { if (e.target === side) location.hash = 'configuracion'; });
+  if (abierto) conectarFormEnvio(envioSel);
+}
+
+/** Ícono según el nombre del método de pago. */
+function iconoMetodo(nombre = '') {
+  const n = nombre.toLowerCase();
+  if (n.includes('tarjeta')) return 'fa-credit-card';
+  if (n.includes('nequi') || n.includes('daviplata')) return 'fa-mobile-screen';
+  if (n.includes('efectivo')) return 'fa-money-bill';
+  return 'fa-wallet';
+}
+
+/** RF17 · Ficha para crear o editar un tipo de envío. */
+function fichaEnvio(e) {
+  const nuevo = !e;
+  const editar = window.puede('configuracion', 'editar');
+  const v = (k) => esc(e ? (e[k] ?? '') : '');
+  return `
+    <form class="ficha" id="form-envio" novalidate>
+      <div class="ficha-head">
+        <div class="ficha-call"><span>${nuevo ? 'Envío nuevo' : `Envío ${window.numeroRegistro(e.id_tipo_envio)}`}</span><span>${e && !e.activo ? 'Inactivo' : 'Activo'}</span></div>
+        <h2>${nuevo ? 'Nuevo tipo de envío' : esc(e.nombre)}</h2>
+        <p>${nuevo ? 'Aparecerá en el carrito apenas lo guardes.' : 'Los pedidos ya hechos conservan el costo con el que se compraron.'}</p>
+        <a class="icon-btn sheet-close" href="admin.html#configuracion" aria-label="Cerrar"><i class="fas fa-xmark"></i></a>
+      </div>
+      <div class="ficha-body">
+        <fieldset class="rol-campos" ${editar ? '' : 'disabled'}>
+          <label class="field"><span class="field-label">Nombre *</span><input class="input" name="nombre" required maxlength="60" value="${v('nombre')}" placeholder="Envío estándar" /></label>
+          <label class="field"><span class="field-label">Descripción</span><input class="input" name="descripcion" maxlength="150" value="${v('descripcion')}" placeholder="Entrega a domicilio" /></label>
+          <div class="form-grid">
+            <label class="field"><span class="field-label">Tiempo estimado</span><input class="input" name="tiempo_estimado" maxlength="40" value="${v('tiempo_estimado')}" placeholder="3 a 5 días hábiles" /></label>
+            <label class="field"><span class="field-label">Costo (USD) *</span><input class="input num" name="costo" type="number" min="0" step="0.01" required value="${e ? e.costo : ''}" placeholder="0 = gratis" /></label>
+          </div>
+          <label class="check"><input type="checkbox" name="activo" ${!e || e.activo ? 'checked' : ''} /> Visible en el carrito</label>
+        </fieldset>
+        ${editar ? `
+        <div class="ficha-actions">
+          <button type="submit" class="btn btn-primary">${nuevo ? 'Crear envío' : 'Guardar cambios'}</button>
+          ${nuevo ? '<a class="btn btn-secondary" href="admin.html#configuracion">Cancelar</a>' : ''}
+          <span class="spacer"></span>
+          ${nuevo ? '' : `<button type="button" class="btn btn-danger" onclick="eliminarEnvio(${e.id_tipo_envio})"><i class="fas fa-trash-can" aria-hidden="true"></i> Eliminar</button>`}
+        </div>` : ''}
+      </div>
+    </form>`;
+}
+
+/** RF17 · Guarda el formulario del envío (crear o editar). */
+function conectarFormEnvio(envio) {
+  const form = document.getElementById('form-envio');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!form.reportValidity()) return;
+    const datos = {
+      nombre: form.nombre.value.trim(),
+      descripcion: form.descripcion.value.trim(),
+      tiempo_estimado: form.tiempo_estimado.value.trim(),
+      costo: parseFloat(form.costo.value),
+      activo: form.activo.checked
+    };
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      const res = await window.fetchAPI(envio ? `/api/tienda/envios/${envio.id_tipo_envio}` : '/api/tienda/envios', {
+        method: envio ? 'PUT' : 'POST',
+        body: JSON.stringify(datos)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo guardar el envío');
+      window.showToast(data.message);
+      const destino = `configuracion/${envio ? envio.id_tipo_envio : data.id_tipo_envio}`;
+      if (location.hash === `#${destino}`) enrutar(); else location.hash = destino;
+    } catch (err) {
+      window.showToast(err.message, 'error');
+      btn.disabled = false;
+    }
+  });
+}
+
+/** RF17 · Interruptor de un método de pago. */
+window.cambiarMetodoPago = async function(id, input) {
+  const label = input.closest('.switch');
+  label.classList.add('busy');
+  try {
+    const res = await window.fetchAPI(`/api/tienda/metodos-pago/${id}`, { method: 'PUT', body: JSON.stringify({ activo: input.checked }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar el método de pago');
+    window.showToast(data.message);
+    enrutar();
+  } catch (e) {
+    input.checked = !input.checked;
+    label.classList.remove('busy');
+    window.showToast(e.message, 'error');
+  }
+};
+
+/** RF17 · Interruptor rápido de un tipo de envío. */
+window.cambiarEnvioActivo = async function(id, input) {
+  const label = input.closest('.switch');
+  label.classList.add('busy');
+  try {
+    const res = await window.fetchAPI(`/api/tienda/envios/${id}`, { method: 'PUT', body: JSON.stringify({ activo: input.checked }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar el envío');
+    window.showToast(data.message);
+    enrutar();
+  } catch (e) {
+    input.checked = !input.checked;
+    label.classList.remove('busy');
+    window.showToast(e.message, 'error');
+  }
+};
+
+/** RF17 · Elimina un tipo de envío (si ya se usó en pedidos, el servidor pide desactivarlo). */
+window.eliminarEnvio = async function(id) {
+  const e = cfg.envios.find(x => x.id_tipo_envio === id);
+  if (!e) return;
+  const ok = await window.confirmar({
+    titulo: `¿Eliminar «${e.nombre}»?`,
+    mensaje: 'Dejará de aparecer en el carrito. Si ya se usó en pedidos, tendrás que desactivarlo en vez de eliminarlo.',
+    confirmar: 'Eliminar envío',
+    peligro: true
+  });
+  if (!ok) return;
+  try {
+    const res = await window.fetchAPI(`/api/tienda/envios/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo eliminar el envío');
+    window.showToast(data.message);
+    if (location.hash === '#configuracion') enrutar(); else location.hash = 'configuracion';
+  } catch (err) {
+    window.showToast(err.message, 'error');
+  }
+};
