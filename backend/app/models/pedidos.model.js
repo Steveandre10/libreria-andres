@@ -112,9 +112,11 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idE
     const envio = await exigirEnvioActivo(conn, idEnvio);
 
     const [pedido] = await conn.query(
-      `INSERT INTO pedidos (estado, fecha, id, nombre_destinatario, direccion_entrega, telefono_contacto, id_tipo_envio, costo_envio)
-       VALUES ('Activo', CURDATE(), ?, ?, ?, ?, ?, ?)`,
-      [idUsuario, entrega.nombre, entrega.direccion, entrega.telefono, envio.id_tipo_envio, envio.costo]
+      // RF3: el método de pago elegido queda en el pedido (y abajo también en la factura)
+      `INSERT INTO pedidos (estado, fecha, id, nombre_destinatario, direccion_entrega, telefono_contacto,
+                            id_tipo_envio, costo_envio, id_metodo_pago)
+       VALUES ('Activo', CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
+      [idUsuario, entrega.nombre, entrega.direccion, entrega.telefono, envio.id_tipo_envio, envio.costo, metodo.id_metodo_pago]
     );
     const idPedido = pedido.insertId;
 
@@ -227,7 +229,7 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
      FROM pedidos p
      LEFT JOIN usuarios u ON u.id = p.id
      LEFT JOIN facturas f ON f.id_pedido = p.id_pedido
-     LEFT JOIN metodos_pago mp ON mp.id_metodo_pago = f.id_metodo_pago
+     LEFT JOIN metodos_pago mp ON mp.id_metodo_pago = COALESCE(p.id_metodo_pago, f.id_metodo_pago) -- RF3
      LEFT JOIN tipos_envio te ON te.id_tipo_envio = p.id_tipo_envio
      ${idUsuario ? 'WHERE p.id = ?' : ''}
      ORDER BY p.id_pedido DESC

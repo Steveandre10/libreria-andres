@@ -1,7 +1,7 @@
 import pool from '../config/db.js';
 
 /** RF18 · Módulos de la administración que se pueden proteger con permisos. */
-export const MODULOS = ['resumen', 'libros', 'inventario', 'usuarios', 'resenas', 'roles', 'configuracion']; // RF14: + inventario · RF17: + configuracion
+export const MODULOS = ['resumen', 'libros', 'inventario', 'facturas', 'usuarios', 'resenas', 'roles', 'configuracion']; // RF14: + inventario · RF17: + configuracion · RF7: + facturas
 
 /** Convierte una fila de rol_permisos en { modulo, ver, editar }. */
 const aPermiso = (p) => ({ modulo: p.modulo, ver: !!p.puede_ver, editar: !!p.puede_editar });
