@@ -10,6 +10,9 @@ import pool from '../config/db.js';
 const SELECT_FACTURA = `
   SELECT f.id_factura, f.id_pedido, f.fecha_emision, f.fecha_registro,
          f.subtotal, f.impuestos, f.costo_envio, f.total,
+         -- RF5: estado ante la DIAN
+         f.documento_adquiriente, f.numero_fe, f.estado_dian, f.motivo_rechazo, f.cufe, f.qr_dian,
+         f.ambiente_dian, f.proveedor_fe, f.intentos_envio, f.fecha_envio_dian, f.fecha_validacion_dian,
          p.estado AS estado_pedido, p.id AS id_cliente,
          p.nombre_destinatario, p.direccion_entrega, p.telefono_contacto,
          u.nombre AS cliente, u.email AS cliente_email,
@@ -26,10 +29,11 @@ const SELECT_FACTURA = `
  * @param {number} [filtros.pedido] - Número de pedido EXACTO.
  * @param {string} [filtros.desde]  - Fecha inicial 'AAAA-MM-DD' (incluida).
  * @param {string} [filtros.hasta]  - Fecha final 'AAAA-MM-DD' (incluida).
+ * @param {string} [filtros.estadoDian] - RF5: Pendiente | Enviada | Aceptada | Rechazada
  * @param {number} [filtros.limite=100]
  * @returns {Promise<Array<Object>>} Facturas de la más reciente a la más antigua.
  */
-export const buscarFacturas = async ({ pedido, desde, hasta, limite = 100 } = {}) => {
+export const buscarFacturas = async ({ pedido, desde, hasta, estadoDian, limite = 100 } = {}) => {
   let query = `${SELECT_FACTURA} WHERE 1=1`;
   const params = [];
 
@@ -44,6 +48,10 @@ export const buscarFacturas = async ({ pedido, desde, hasta, limite = 100 } = {}
   if (hasta) {
     query += ' AND f.fecha_emision <= ?';
     params.push(hasta);
+  }
+  if (estadoDian) {
+    query += ' AND f.estado_dian = ?';
+    params.push(estadoDian);
   }
   query += ' ORDER BY f.id_factura DESC LIMIT ?';
   params.push(limite);

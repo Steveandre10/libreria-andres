@@ -100,9 +100,10 @@ export const cotizar = async (items, idEnvio = null) => {
  * @param {{nombre:string, direccion:string, telefono:string}} datos.entrega
  * @param {number} datos.idMetodoPago
  * @param {number} datos.idEnvio - RF17: tipo de envío elegido.
+ * @param {string|null} [datos.documento] - RF5: cédula/NIT del cliente para la factura (null = consumidor final).
  * @returns {Promise<{id_pedido:number, id_factura:number, total:number, unidades:number}>}
  */
-export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idEnvio }) => {
+export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idEnvio, documento = null }) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -121,8 +122,8 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idE
     const idPedido = pedido.insertId;
 
     const [factura] = await conn.query(
-      `INSERT INTO facturas (fecha_emision, total, id_pedido, id_metodo_pago) VALUES (CURDATE(), 0, ?, ?)`,
-      [idPedido, idMetodoPago]
+      `INSERT INTO facturas (fecha_emision, total, id_pedido, id_metodo_pago, documento_adquiriente) VALUES (CURDATE(), 0, ?, ?, ?)`,
+      [idPedido, idMetodoPago, documento]
     );
     const idFactura = factura.insertId;
 
@@ -224,7 +225,7 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
   const [pedidos] = await pool.query(
     `SELECT p.id_pedido, p.estado, p.fecha_registro, p.nombre_destinatario, p.direccion_entrega,
             p.telefono_contacto, u.nombre AS cliente, u.email AS cliente_email,
-            f.subtotal, f.impuestos, f.costo_envio, f.total, f.id_factura, mp.nombre_metodo AS metodo_pago,
+            f.subtotal, f.impuestos, f.costo_envio, f.total, f.id_factura, f.estado_dian, mp.nombre_metodo AS metodo_pago,
             te.nombre AS tipo_envio
      FROM pedidos p
      LEFT JOIN usuarios u ON u.id = p.id

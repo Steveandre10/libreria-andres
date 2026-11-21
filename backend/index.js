@@ -11,6 +11,7 @@ import routePedidos from './app/routes/pedidos.routes.js';   // RF14: ventas y d
 import routeInventario from './app/routes/inventario.routes.js'; // RF14: inventario en tiempo real
 import routeTienda from './app/routes/tienda.routes.js';       // RF17: métodos de pago y envíos
 import routeFacturas from './app/routes/facturas.routes.js';   // RF7: buscar y ver facturas
+import { verificarCorreo } from './app/services/correo.js';           // RF2: estado del correo al arrancar
 const app = express();
 
 /**
@@ -99,5 +100,8 @@ app.listen(PORT, async () => {
   } catch (error) {
     console.error(`MySQL SIN conexión en ${destinoMysql} -> [${error.code}] ${error.message}`);
   }
+
+  // RF2: dice en la consola si los correos saldrán de verdad (Gmail) o en modo pruebas
+  await verificarCorreo();
 });
 

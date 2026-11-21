@@ -3,6 +3,7 @@ import {
   crearSolicitud, getSolicitudes, responderSolicitud, MOTIVOS_DEVOLUCION
 } from '../models/pedidos.model.js';
 import { ErrorInventario } from '../models/inventario.model.js';
+import { enviarFacturaSinFallar } from '../services/facturacion/index.js';   // RF5
 
 /** Respuesta común de errores: los de negocio (sin stock, ya devuelto) con su estado; el resto 500. */
 const responderError = (res, error) => {
@@ -70,9 +71,15 @@ export const registrarPedido = async (req, res) => {
         telefono: String(entrega.telefono).trim().slice(0, 20)
       },
       idMetodoPago,
-      idEnvio
+      idEnvio,
+      // RF5: cédula/NIT opcional (solo dígitos); vacío = consumidor final
+      documento: String(req.body.documento || '').replace(/\D/g, '').slice(0, 15) || null
     });
-    res.status(201).json({ message: 'Pedido registrado', pedido: resultado });
+
+    // RF5: la factura se envía al servicio de validación apenas termina la compra.
+    // Si el servicio falla, la compra igual queda registrada y la factura se puede reenviar.
+    const dian = await enviarFacturaSinFallar(resultado.id_factura);
+    res.status(201).json({ message: 'Pedido registrado', pedido: { ...resultado, estado_dian: dian.estado, motivo_dian: dian.motivo || null } });
   } catch (error) {
     responderError(res, error);
   }
