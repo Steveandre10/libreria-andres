@@ -946,3 +946,20 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 @media (min-width: 761px) { .filtros-facturas { grid-template-columns: 140px 165px 165px 160px auto; } }
 /* RF4: bloque de la nota crédito (verde: es a favor del cliente) */
 .nota-acciones { border-color: var(--ok-line); background: var(--ok-bg); }
+
+/* ---------- RF27: estado del pedido ---------- */
+.estado-envio-fila { display: flex !important; align-items: center; gap: 10px; margin-top: 4px; }
+/* RF27: seguimiento del pedido (pasos y fechas) */
+.seguimiento { margin-bottom: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.pasos { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); margin: 12px 0; }
+.pasos li { position: relative; text-align: center; font-size: var(--fs-xs); color: var(--text-3); padding-top: 22px; }
+.pasos li span { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 14px; height: 14px; border-radius: 50%; background: var(--paper-2); border: 2px solid var(--line-strong); z-index: 1; }
+.pasos li::before { content: ''; position: absolute; top: 6px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+.pasos li:first-child::before { display: none; }
+.pasos li.hecho span, .pasos li.actual span { background: var(--ok); border-color: var(--ok); }
+.pasos li.hecho::before, .pasos li.actual::before { background: var(--ok); }
+.pasos li.actual { color: var(--text); font-weight: 700; }
+.historial-estados { list-style: none; font-size: var(--fs-sm); }
+.historial-estados li { padding: 6px 0; border-top: 1px solid var(--line-soft); }
+.historial-estados time { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); margin-left: 6px; }
+.historial-estados div { color: var(--text-2); font-size: var(--fs-xs); }

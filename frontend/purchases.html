@@ -51,6 +51,7 @@
 
     const esc = window.esc;
     let pedidos = [];
+    let pedidoAbierto = null;   // RF27: para refrescar el detalle abierto
 
     /** Motivos de devolución (los mismos que valida el servidor). */
     const MOTIVOS = ['Llegó dañado', 'No es el libro que pedí', 'Ya no lo necesito', 'La entrega se demoró', 'Otro motivo'];
@@ -66,11 +67,22 @@
       if (p.estado === 'Devuelto') return { texto: 'Devuelto', clase: 'status-out', tarjeta: 'pedido-devuelto' };
       if (p.solicitud && p.solicitud.estado === 'Pendiente') return { texto: 'Devolución solicitada', clase: 'status-bajo', tarjeta: 'pedido-pendiente' };
       if (p.solicitud && p.solicitud.estado === 'Rechazada') return { texto: 'Devolución rechazada', clase: 'status-admin', tarjeta: '' };
-      return { texto: 'Confirmado', clase: 'status-ok', tarjeta: '' };
+      // RF27: estado del envío que actualiza el encargado
+      const envio = { Pendiente: 'status-admin', Pagado: 'status-bajo', Enviado: 'status-bajo', Entregado: 'status-ok', Cancelado: 'status-out' };
+      return { texto: p.estado_envio || 'Pendiente', clase: envio[p.estado_envio] || 'status-admin', tarjeta: p.estado_envio === 'Cancelado' ? 'pedido-devuelto' : '' };
     }
 
     document.addEventListener('DOMContentLoaded', () => {
       cargarPedidos();
+
+      // RF27: "tiempo real" -> cada 15 s se vuelve a consultar; si el encargado cambió el estado, se ve solo.
+      // No se refresca mientras el cliente escribe una solicitud de devolución.
+      setInterval(async () => {
+        if (document.visibilityState !== 'visible' || document.getElementById('form-devolucion')) return;
+        const abierto = document.getElementById('pedido-sheet').classList.contains('active') ? pedidoAbierto : null;
+        await cargarPedidos();
+        if (abierto) abrirDetalle(abierto, true);
+      }, 15000);
 
       const sheet = document.getElementById('pedido-sheet');
       sheet.addEventListener('click', (e) => {
@@ -125,7 +137,8 @@
     }
 
     /** Abre el cajón con el detalle completo de un pedido. */
-    function abrirDetalle(idPedido) {
+    function abrirDetalle(idPedido, refresco = false) {
+      pedidoAbierto = idPedido;
       const p = pedidos.find(x => x.id_pedido === idPedido);
       if (!p) return;
       const est = estadoPedido(p);
@@ -159,6 +172,8 @@
             <a class="btn btn-secondary btn-sm" href="nota.html?id=${p.nota_credito.id_nota}" target="_blank" rel="noopener"><i class="fas fa-eye" aria-hidden="true"></i> Ver</a>
             <a class="btn btn-primary btn-sm" href="nota.html?id=${p.nota_credito.id_nota}&descargar=1" target="_blank" rel="noopener"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</a>
           </div>` : ''}
+
+          ${seguimiento(p)}
 
           <dl class="ficha-facts">
             <div><dt>Recibe</dt><dd>${esc(p.nombre_destinatario || '—')}</dd></div>
@@ -206,7 +221,31 @@
       sheet.classList.add('active');
       sheet.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
-      sheet.querySelector('.sheet-close').focus();
+      if (!refresco) sheet.querySelector('.sheet-close').focus();
+    }
+
+    /**
+     * RF27 · Seguimiento del pedido: los pasos Pendiente → Pagado → Enviado → Entregado
+     * y la lista de cada cambio con su fecha y la nota del encargado (ej. número de guía).
+     */
+    function seguimiento(p) {
+      const pasos = ['Pendiente', 'Pagado', 'Enviado', 'Entregado'];
+      const actual = p.estado_envio || 'Pendiente';
+      const cancelado = actual === 'Cancelado';
+      const indice = pasos.indexOf(actual);
+      const historial = (p.historial_estados || []).slice().reverse();   // más reciente primero
+      return `
+        <section class="seguimiento">
+          <h3 class="field-label">Seguimiento del pedido</h3>
+          ${cancelado
+            ? '<p class="aviso aviso-devuelto" style="margin:8px 0"><i class="fas fa-ban" aria-hidden="true"></i><span>Este pedido fue cancelado.</span></p>'
+            : `<ol class="pasos">${pasos.map((paso, i) => `<li class="${i < indice ? 'hecho' : (i === indice ? 'actual' : '')}"><span></span>${paso}</li>`).join('')}</ol>`}
+          <ul class="historial-estados">
+            ${historial.map(h => `
+              <li><b>${esc(h.estado)}</b> <time>${fechaHora(h.fecha)}</time>${h.nota ? `<div>${esc(h.nota)}</div>` : ''}</li>`).join('')}
+          </ul>
+          <p class="field-hint">Se actualiza solo cada 15 segundos.</p>
+        </section>`;
     }
 
     /** Recuadro con el estado de la solicitud de devolución (si existe). */

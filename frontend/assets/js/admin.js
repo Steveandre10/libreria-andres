@@ -1141,6 +1141,10 @@ function pintarVentas() {
           <b>${window.numeroRegistro(p.id_pedido)} · ${esc(p.cliente || 'Cliente')}</b>
           <p class="quote">${esc(resumen)}</p>
           <span>${unidades} unidad(es) · ${window.formatPrecio(p.total)} · ${fechaHora(p.fecha_registro)}</span>
+          <span class="estado-envio-fila">
+            <span class="status ${ESTADO_ENVIO[p.estado_envio]?.clase || 'status-admin'}">${p.estado_envio || 'Pendiente'}</span>
+            ${(SIGUIENTES[p.estado_envio] || []).length ? `<button type="button" class="link" data-requiere="inventario:editar" onclick="cambiarEstadoPedido(${p.id_pedido})">Actualizar estado</button>` : ''}
+          </span>
         </div>
         ${p.estado !== 'Activo'
           ? '<span class="status status-out">Devuelto</span>'
@@ -1872,4 +1876,74 @@ window.corregirDocumentoFactura = async function(idFactura) {
   } catch (e) {
     window.showToast(e.message, 'error');
   }
+};
+
+
+/* ---------------------------------------------------------------
+   ESTADO DEL PEDIDO Y DEL ENVÍO (RF27)
+   El encargado lo avanza desde "Ventas recientes"; el cliente lo ve en "Mis compras".
+   --------------------------------------------------------------- */
+
+/** Color de cada estado. */
+const ESTADO_ENVIO = {
+  Pendiente: { clase: 'status-admin' }, Pagado: { clase: 'status-bajo' },
+  Enviado: { clase: 'status-bajo' }, Entregado: { clase: 'status-ok' }, Cancelado: { clase: 'status-out' }
+};
+/** Mismas reglas que el servidor: solo se avanza, y se cancela antes de entregar. */
+const SIGUIENTES = {
+  Pendiente: ['Pagado', 'Cancelado'], Pagado: ['Enviado', 'Cancelado'], Enviado: ['Entregado'], Entregado: [], Cancelado: []
+};
+
+/** RF27 · Diálogo para elegir el nuevo estado (y una nota opcional, p. ej. el número de guía). */
+window.cambiarEstadoPedido = function(idPedido) {
+  const p = inv.pedidos.find(x => x.id_pedido === idPedido);
+  if (!p) return;
+  const opciones = SIGUIENTES[p.estado_envio] || [];
+  const ayudas = {
+    Pagado: 'Se confirmó el pago.', Enviado: 'Salió hacia el cliente (anota la guía).',
+    Entregado: 'El cliente lo recibió.', Cancelado: 'Repone el stock y genera la nota crédito.'
+  };
+  const dlg = document.createElement('dialog');
+  dlg.className = 'confirm';
+  dlg.innerHTML = `
+    <form class="ficha" method="dialog">
+      <div class="ficha-head"><h2>Estado del ${window.numeroRegistro(idPedido)}</h2><p>Ahora: <b>${esc(p.estado_envio)}</b></p></div>
+      <div class="ficha-body">
+        <fieldset style="border:0; display:grid; gap:8px">
+          <legend class="field-label" style="margin-bottom:6px">Nuevo estado</legend>
+          ${opciones.map((o, i) => `
+            <label class="pay-option"><input type="radio" name="estado" value="${o}" ${i === 0 ? 'checked' : ''} />
+              <span><b>${o}</b> · ${ayudas[o]}</span></label>`).join('')}
+        </fieldset>
+        <label class="field" style="margin-top:12px"><span class="field-label">Nota para el cliente (opcional)</span>
+          <input class="input" name="nota" maxlength="200" placeholder="Ej. Guía Servientrega 1234567" /></label>
+        <div class="confirm-actions">
+          <button type="button" class="btn btn-secondary" data-cancelar>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar estado</button>
+        </div>
+      </div>
+    </form>`;
+  document.body.appendChild(dlg);
+  const cerrar = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector('[data-cancelar]').addEventListener('click', cerrar);
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); cerrar(); });
+  dlg.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const estado = form.querySelector('input[name="estado"]:checked').value;
+    if (estado === 'Cancelado' && !confirm('¿Cancelar el pedido? Se repone el stock y se genera la nota crédito.')) return;
+    try {
+      const res = await window.fetchAPI(`/api/pedidos/${idPedido}/estado`, {
+        method: 'PUT', body: JSON.stringify({ estado, nota: form.nota.value.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo cambiar el estado');
+      cerrar();
+      window.showToast(data.message);
+      await refrescarInventario();
+    } catch (err) {
+      window.showToast(err.message, 'error');
+    }
+  });
+  dlg.showModal();
 };
