@@ -103,11 +103,19 @@ export const listarPedidos = async (req, res) => {
   }
 };
 
-/** POST /api/pedidos/:id/devolucion · RF14: devuelve el pedido y repone el stock. */
+/** RF9 · Estado en que llegó el libro devuelto (solo "Bueno" vuelve al stock). */
+const leerEstadoLibro = (valor) => (valor === 'Dañado' ? 'Dañado' : 'Bueno');
+
+/** Mensaje de confirmación de una devolución (stock + nota crédito). */
+const mensajeDevolucion = (r) =>
+  `Devolución registrada. ${r.repusoStock ? 'Los libros volvieron al stock.' : 'El libro llegó dañado: no vuelve al stock.'}` +
+  `${r.idNota ? ` Se generó la nota crédito NC-${String(r.idNota).padStart(4, '0')}.` : ''}`;
+
+/** POST /api/pedidos/:id/devolucion · RF9: devolución directa. Body: { estado_libro: 'Bueno'|'Dañado' } */
 export const registrarDevolucion = async (req, res) => {
   try {
-    await devolverPedido(Number(req.params.id), req.usuario.id);
-    res.json({ message: 'Devolución registrada. El stock ya fue repuesto.' });
+    const r = await devolverPedido(Number(req.params.id), req.usuario.id, { estadoLibro: leerEstadoLibro(req.body.estado_libro) });
+    res.json({ message: mensajeDevolucion(r), ...r });
   } catch (error) {
     responderError(res, error);
   }
@@ -161,16 +169,16 @@ export const responderDevolucion = async (req, res) => {
     if (decision === 'rechazar' && !respuesta) {
       return res.status(400).json({ error: 'Escribe al cliente por qué se rechaza la devolución.' });
     }
-    await responderSolicitud({
+    const r = await responderSolicitud({
       idSolicitud: Number(req.params.id),
       aprobar: decision === 'aprobar',
       respuesta,
-      idRevisor: req.usuario.id
+      idRevisor: req.usuario.id,
+      estadoLibro: leerEstadoLibro(req.body.estado_libro)   // RF9
     });
     res.json({
-      message: decision === 'aprobar'
-        ? 'Devolución aprobada. El stock ya se repuso.'
-        : 'Solicitud rechazada. El cliente verá tu respuesta.'
+      message: decision === 'aprobar' ? mensajeDevolucion(r) : 'Solicitud rechazada. El cliente verá tu respuesta.',
+      ...r
     });
   } catch (error) {
     responderError(res, error);

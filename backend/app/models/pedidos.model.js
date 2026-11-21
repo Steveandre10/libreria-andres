@@ -2,6 +2,8 @@ import pool from '../config/db.js';
 import { moverStock, ErrorInventario } from './inventario.model.js';
 // RF17: métodos de pago y envíos configurables desde el panel
 import { exigirMetodoActivo, exigirEnvioActivo } from './tienda.model.js';
+// RF4: cada devolución aprobada genera su nota crédito
+import { crearNotaCredito } from './notas.model.js';
 
 /**
  * @file pedidos.model.js
@@ -176,19 +178,30 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idE
  * el pedido pasa a "Devuelto" y cada libro vuelve al inventario (movimiento "Devolución").
  * La usan la devolución directa del personal y la aprobación de una solicitud del cliente.
  */
-const devolverDentroDe = async (conn, idPedido, idUsuario) => {
+const devolverDentroDe = async (conn, idPedido, idUsuario, { estadoLibro = 'Bueno', motivo = 'Devolución', idSolicitud = null } = {}) => {
   // FOR UPDATE: evita que dos personas devuelvan el mismo pedido a la vez
   const [[pedido]] = await conn.query('SELECT id_pedido, estado FROM pedidos WHERE id_pedido = ? FOR UPDATE', [idPedido]);
   if (!pedido) throw new ErrorInventario('El pedido no existe.', 404);
   if (pedido.estado !== 'Activo') throw new ErrorInventario('Este pedido ya fue devuelto.');
 
-  const [lineas] = await conn.query('SELECT id_libro, cantidad FROM pedido_libro WHERE id_pedido = ?', [idPedido]);
-  for (const linea of lineas) {
-    await moverStock(conn, {
-      idLibro: linea.id_libro, cambio: +linea.cantidad, tipo: 'Devolución', idUsuario, idPedido
-    });
+  // RF9: solo un libro en buen estado vuelve a venderse; uno dañado no regresa al stock
+  const reponer = estadoLibro === 'Bueno';
+  if (reponer) {
+    const [lineas] = await conn.query('SELECT id_libro, cantidad FROM pedido_libro WHERE id_pedido = ?', [idPedido]);
+    for (const linea of lineas) {
+      await moverStock(conn, {
+        idLibro: linea.id_libro, cambio: +linea.cantidad, tipo: 'Devolución', idUsuario, idPedido
+      });
+    }
   }
   await conn.query(`UPDATE pedidos SET estado = 'Devuelto' WHERE id_pedido = ?`, [idPedido]);
+
+  // RF4: la nota crédito se crea sola, en la misma transacción (si algo falla, no queda nada a medias)
+  const idNota = await crearNotaCredito(conn, {
+    idPedido, idSolicitud, idUsuario,
+    motivo: `${motivo}${reponer ? '' : ' (libro dañado: no vuelve al stock)'}`
+  });
+  return { repusoStock: reponer, idNota };
 };
 
 /**
@@ -197,18 +210,26 @@ const devolverDentroDe = async (conn, idPedido, idUsuario) => {
  * @param {number} idPedido
  * @param {number} idUsuario - Quién registra la devolución (personal de inventario).
  */
-export const devolverPedido = async (idPedido, idUsuario) => {
+export const devolverPedido = async (idPedido, idUsuario, { estadoLibro = 'Bueno', motivo = 'Devolución registrada en la tienda' } = {}) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    await devolverDentroDe(conn, idPedido, idUsuario);
+    // Si el cliente ya la había solicitado, la nota queda ligada a su solicitud
+    const [[sol]] = await conn.query(
+      `SELECT id_solicitud, motivo FROM solicitudes_devolucion WHERE id_pedido = ? AND estado = 'Pendiente'`, [idPedido]
+    );
+    const resultado = await devolverDentroDe(conn, idPedido, idUsuario, {
+      estadoLibro, motivo: sol ? sol.motivo : motivo, idSolicitud: sol ? sol.id_solicitud : null
+    });
     await conn.query(
       `UPDATE solicitudes_devolucion SET estado = 'Aprobada', id_revisor = ?, fecha_respuesta = NOW(),
+         estado_libro = ?, repuso_stock = ?,
          respuesta = COALESCE(respuesta, 'Devolución registrada por el personal.')
        WHERE id_pedido = ? AND estado = 'Pendiente'`,
-      [idUsuario, idPedido]
+      [idUsuario, estadoLibro, resultado.repusoStock ? 1 : 0, idPedido]
     );
     await conn.commit();
+    return resultado;
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -253,8 +274,15 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
      WHERE s.id_pedido IN (?)`,
     [pedidos.map(p => p.id_pedido)]
   );
+  // RF4: nota crédito de cada pedido (si fue devuelto)
+  const [notas] = await pool.query(
+    `SELECT f.id_pedido, n.id_nota, n.total AS total_nota FROM notas_contables n
+     JOIN facturas f ON f.id_factura = n.id_factura WHERE f.id_pedido IN (?) AND n.tipo = 'Crédito'`,
+    [pedidos.map(p => p.id_pedido)]
+  );
   return pedidos.map(p => ({
     ...p,
+    nota_credito: notas.find(n => n.id_pedido === p.id_pedido) || null,
     items: lineas.filter(l => l.id_pedido === p.id_pedido),
     solicitud: solicitudes.find(s => s.id_pedido === p.id_pedido) || null
   }));
@@ -304,8 +332,9 @@ export const crearSolicitud = async ({ idPedido, idUsuario, motivo, detalle }) =
 export const getSolicitudes = async () => {
   const [rows] = await pool.query(
     `SELECT s.id_solicitud, s.id_pedido, s.motivo, s.detalle, s.estado, s.respuesta,
-            s.fecha_solicitud, s.fecha_respuesta,
-            u.nombre AS cliente, r.nombre AS revisor, f.total
+            s.fecha_solicitud, s.fecha_respuesta, s.estado_libro, s.repuso_stock,
+            u.nombre AS cliente, r.nombre AS revisor, f.total,
+            (SELECT n.id_nota FROM notas_contables n WHERE n.id_factura = f.id_factura AND n.tipo = 'Crédito') AS id_nota
      FROM solicitudes_devolucion s
      LEFT JOIN usuarios u ON u.id = s.id_usuario
      LEFT JOIN usuarios r ON r.id = s.id_revisor
@@ -328,26 +357,35 @@ export const getSolicitudes = async () => {
  * Rechazar = el pedido sigue activo y el cliente ve la respuesta.
  * @param {{idSolicitud:number, aprobar:boolean, respuesta?:string, idRevisor:number}} datos
  */
-export const responderSolicitud = async ({ idSolicitud, aprobar, respuesta, idRevisor }) => {
+export const responderSolicitud = async ({ idSolicitud, aprobar, respuesta, idRevisor, estadoLibro = 'Bueno' }) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const [[sol]] = await conn.query(
-      'SELECT id_solicitud, id_pedido, estado FROM solicitudes_devolucion WHERE id_solicitud = ? FOR UPDATE',
+      'SELECT id_solicitud, id_pedido, estado, motivo FROM solicitudes_devolucion WHERE id_solicitud = ? FOR UPDATE',
       [idSolicitud]
     );
     if (!sol) throw new ErrorInventario('La solicitud no existe.', 404);
     if (sol.estado !== 'Pendiente') throw new ErrorInventario('Esta solicitud ya fue respondida.');
 
-    if (aprobar) await devolverDentroDe(conn, sol.id_pedido, idRevisor);
+    // RF9 + RF4: aprobar = devolución (stock según el estado del libro) + nota crédito automática
+    let resultado = { repusoStock: false, idNota: null };
+    if (aprobar) {
+      resultado = await devolverDentroDe(conn, sol.id_pedido, idRevisor, {
+        estadoLibro, motivo: sol.motivo, idSolicitud: sol.id_solicitud
+      });
+    }
 
     await conn.query(
       `UPDATE solicitudes_devolucion
-       SET estado = ?, respuesta = ?, id_revisor = ?, fecha_respuesta = NOW()
+       SET estado = ?, respuesta = ?, id_revisor = ?, fecha_respuesta = NOW(),
+           estado_libro = ?, repuso_stock = ?
        WHERE id_solicitud = ?`,
-      [aprobar ? 'Aprobada' : 'Rechazada', respuesta || null, idRevisor, idSolicitud]
+      [aprobar ? 'Aprobada' : 'Rechazada', respuesta || null, idRevisor,
+       aprobar ? estadoLibro : null, resultado.repusoStock ? 1 : 0, idSolicitud]
     );
     await conn.commit();
+    return resultado;
   } catch (error) {
     await conn.rollback();
     throw error;

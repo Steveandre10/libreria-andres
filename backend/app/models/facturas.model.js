@@ -13,6 +13,7 @@ const SELECT_FACTURA = `
          -- RF5: estado ante la DIAN
          f.documento_adquiriente, f.numero_fe, f.estado_dian, f.motivo_rechazo, f.cufe, f.qr_dian,
          f.ambiente_dian, f.proveedor_fe, f.intentos_envio, f.fecha_envio_dian, f.fecha_validacion_dian,
+         (SELECT n.id_nota FROM notas_contables n WHERE n.id_factura = f.id_factura AND n.tipo = 'Crédito') AS id_nota, -- RF4
          p.estado AS estado_pedido, p.id AS id_cliente,
          p.nombre_destinatario, p.direccion_entrega, p.telefono_contacto,
          u.nombre AS cliente, u.email AS cliente_email,
