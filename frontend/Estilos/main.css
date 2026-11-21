@@ -935,3 +935,7 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .filtros-acciones { display: flex; gap: 6px; }
 .atajos-fecha { grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; font-size: var(--fs-sm); }
 @media (max-width: 760px) { .filtros-facturas { grid-template-columns: 1fr 1fr; } .filtros-facturas > .field:first-child, .filtros-acciones { grid-column: 1 / -1; } }
+
+/* RF1: bloque de la factura en el detalle del pedido */
+.factura-acciones { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.factura-acciones > div { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 2px; }

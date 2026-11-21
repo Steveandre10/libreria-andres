@@ -94,8 +94,11 @@
             <div><dt>Factura</dt><dd id="receipt-factura"></dd></div>
           </dl>
           <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
-            <a href="index.html" class="btn btn-primary">Seguir comprando</a>
-            <a href="purchases.html" class="btn btn-secondary">Mis compras</a>
+            <!-- RF1: la factura se generó con la compra; se puede ver y descargar de inmediato -->
+            <a id="receipt-ver-factura" href="#" target="_blank" rel="noopener" class="btn btn-primary"><i class="fas fa-file-invoice" aria-hidden="true"></i> Ver factura</a>
+            <a id="receipt-pdf" href="#" target="_blank" rel="noopener" class="btn btn-secondary"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</a>
+            <a href="purchases.html" class="btn btn-quiet">Mis compras</a>
+            <a href="index.html" class="btn btn-quiet">Seguir comprando</a>
           </div>
         </div>
       </article>
@@ -417,6 +420,9 @@
         document.getElementById('receipt-metodo').textContent = pedido.metodo_pago;
         document.getElementById('receipt-total').textContent = window.formatPrecio(pedido.total);
         document.getElementById('receipt-factura').textContent = window.numeroRegistro(pedido.id_factura);
+        // RF1: enlaces a la factura recién generada (verla en pantalla o descargarla en PDF)
+        document.getElementById('receipt-ver-factura').href = `factura.html?id=${pedido.id_factura}`;
+        document.getElementById('receipt-pdf').href = `factura.html?id=${pedido.id_factura}&descargar=1`;
 
         window.saveCart([]);
         renderizarCarrito();
