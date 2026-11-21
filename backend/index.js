@@ -12,6 +12,7 @@ import routeInventario from './app/routes/inventario.routes.js'; // RF14: invent
 import routeTienda from './app/routes/tienda.routes.js';       // RF17: métodos de pago y envíos
 import routeFacturas from './app/routes/facturas.routes.js';   // RF7: buscar y ver facturas
 import routeNotas from './app/routes/notas.routes.js';         // RF4: notas crédito/débito
+import routeReportes from './app/routes/reportes.routes.js';   // RF8/RF6/RF20/RF19: reportes y KPIs
 import { verificarCorreo } from './app/services/correo.js';           // RF2: estado del correo al arrancar
 const app = express();
 
@@ -89,6 +90,7 @@ app.use('/api/inventario', routeInventario);
 app.use('/api/tienda', routeTienda);
 app.use('/api/facturas', routeFacturas);
 app.use('/api/notas', routeNotas);
+app.use('/api/reportes', routeReportes);
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
