@@ -6,7 +6,7 @@
 
 const esc = (v) => window.esc(v);
 /** RF18 · Módulos de la administración y su nombre visible (mismos que en el backend). */
-const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', facturas: 'Facturas', reportes: 'Reportes', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion · RF8/RF6/RF20: + reportes
+const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', facturas: 'Facturas', reportes: 'Reportes', soporte: 'Atención al cliente', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', auditoria: 'Registro de actividad', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion · RF8/RF6/RF20: + reportes
 const MODULOS = Object.keys(NOMBRES_MODULO);
 const estado = {
   libros: [],
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   window.addEventListener('hashchange', enrutar);
-  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles(), cargarSolicitudes(), cargarAlertas()]);
+  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles(), cargarSolicitudes(), cargarAlertas(), cargarConteoCasos()]);
   enrutar();
 });
 
@@ -56,7 +56,8 @@ async function cargarUsuarios() {
 
 async function cargarResenas() {
   try {
-    const res = await fetch(`${window.API_BASE}/api/resenas`);
+    if (!window.puede('resenas')) throw new Error();   // RF21: la lista completa (con pendientes) es solo para moderar
+    const res = await window.fetchAPI('/api/resenas');
     if (!res.ok) throw new Error();
     estado.resenas = (await res.json()).resenas || [];
     estado.cargado.resenas = true;
@@ -89,6 +90,7 @@ function enrutar() {
   const [hash, param] = location.hash.replace('#', '').split('/');
   detenerInventarioEnVivo(); // RF14: al cambiar de sección se apaga la actualización automática
   detenerKpis();             // RF19: lo mismo con el tablero de indicadores
+  detenerSoporte();          // RF30: y con la bandeja de casos
   // Sin sección en la URL: abre el primer módulo que este rol puede ver
   const seccion = hash || MODULOS.find(m => window.puede(m)) || 'resumen';
 
@@ -98,7 +100,8 @@ function enrutar() {
   actualizarConteoRail();
 
   const root = document.getElementById('admin-root');
-  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, facturas: vistaFacturas, reportes: vistaReportes, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
+  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, facturas: vistaFacturas, reportes: vistaReportes, soporte: vistaSoporte, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, auditoria: vistaAuditoria,
+    configuracion: async (r, p) => { await vistaConfiguracion(r, p); agregarPanelPromocion(r); } };   // RF26: + panel de promociones
 
   // RF18 · criterio 3: sin permiso para ver el módulo -> acceso denegado
   if (!vistas[seccion] || !window.puede(seccion, 'ver')) {
@@ -148,6 +151,21 @@ function actualizarConteoRail() {
     badgeSol.hidden = pendientes === 0;
     badgeSol.title = `${pendientes} solicitudes de devolución pendientes`;
   }
+  // RF21: reseñas esperando aprobación
+  const badgeRes = document.querySelector('[data-count="resenas"]');
+  if (badgeRes) {
+    const n = estado.resenas.filter(r => r.estado === 'Pendiente').length;
+    badgeRes.textContent = n;
+    badgeRes.hidden = !n;
+    badgeRes.title = `${n} reseñas por aprobar`;
+  }
+  // RF30: casos de atención al cliente sin cerrar
+  const badgeCasos = document.querySelector('[data-count="casos"]');
+  if (badgeCasos) {
+    badgeCasos.textContent = sop.casosAbiertos;
+    badgeCasos.hidden = !sop.casosAbiertos;
+    badgeCasos.title = `${sop.casosAbiertos} casos sin cerrar`;
+  }
   // RF10: avisos de stock bajo sin leer
   const badgeAlerta = document.querySelector('[data-count="alertas"]');
   if (badgeAlerta) {
@@ -181,7 +199,7 @@ function vistaResumen(root) {
   const agotados = estado.libros.filter(l => l.disponibilidad === 'Agotado');
   const clientes = estado.usuarios.filter(u => u.rol !== 'admin').length;
   const recientes = [...estado.libros].sort((a, b) => b.id_libro - a.id_libro).slice(0, 5);
-  const ultimasResenas = estado.resenas.slice(0, 5);
+  const ultimasResenas = estado.resenas.filter(r => r.estado === 'Aprobada').slice(0, 5);   // RF21: solo publicadas
   const hoy = new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
 
   root.innerHTML = `
@@ -678,56 +696,7 @@ window.eliminarUsuario = async function(id) {
 /* ---------------------------------------------------------------
    RESEÑAS
    --------------------------------------------------------------- */
-function vistaResenas(root) {
-  if (!estado.cargado.resenas) { root.innerHTML = errorConexion('las reseñas'); return; }
-  const f = estado.filtros.resenas;
-  const libros = [...new Set(estado.resenas.map(r => r.libro_titulo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  const media = estado.resenas.length
-    ? nota(estado.resenas.reduce((s, r) => s + parseFloat(r.calificacion || 0), 0) / estado.resenas.length)
-    : '—';
-
-  root.innerHTML = `
-    <section class="admin-section">
-      <header class="page-head">
-        <div><h1>Reseñas</h1><p>${estado.resenas.length} reseñas · calificación media ${media}</p></div>
-      </header>
-      <div class="toolbar">
-        <label class="search"><span class="sr-only">Buscar reseñas</span><i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-          <input type="search" class="input" id="r-q" placeholder="Texto o lector" value="${esc(f.q)}" /></label>
-        <label><span class="sr-only">Libro</span><select class="select" id="r-libro">
-          <option value="">Todos los libros</option>
-          ${libros.map(t => `<option ${f.libro === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-        </select></label>
-      </div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Libro</th><th>Lector</th><th class="right">Nota</th><th>Fecha</th><th>Reseña</th><th><span class="sr-only">Acciones</span></th></tr></thead>
-          <tbody id="resenas-tbody"></tbody>
-        </table>
-      </div>
-    </section>`;
-
-  const pintar = () => {
-    f.q = document.getElementById('r-q').value;
-    f.libro = document.getElementById('r-libro').value;
-    const q = f.q.trim().toLowerCase();
-    const filas = estado.resenas.filter(r =>
-      (!q || `${r.reseña} ${r.usuario_nombre}`.toLowerCase().includes(q)) &&
-      (!f.libro || r.libro_titulo === f.libro));
-    document.getElementById('resenas-tbody').innerHTML = filas.length ? filas.map(r => `
-      <tr>
-        <td><b>${esc(r.libro_titulo || 'Libro eliminado')}</b></td>
-        <td>${esc(r.usuario_nombre)}</td>
-        <td class="right"><span class="rating"><i class="fas fa-star" aria-hidden="true"></i>${nota(r.calificacion)}</span></td>
-        <td class="mono">${fecha(r.fecha)}</td>
-        <td style="max-width:48ch; color:var(--text-2)">${esc(r.reseña)}</td>
-        <td><div class="row-actions"><button type="button" class="icon-btn danger" data-requiere="resenas:editar" onclick="eliminarResena(${r.id_reseña})" aria-label="Eliminar reseña" title="Eliminar"><i class="fas fa-trash-can"></i></button></div></td>
-      </tr>`).join('') : `<tr><td colspan="6"><div class="empty" style="padding:28px"><p>${estado.resenas.length ? 'Ninguna reseña coincide.' : 'Todavía no hay reseñas de lectores.'}</p></div></td></tr>`;
-  };
-  pintar();
-  document.getElementById('r-q').addEventListener('input', pintar);
-  document.getElementById('r-libro').addEventListener('input', pintar);
-}
+/* vistaResenas: ver "RESEÑAS · MODERACIÓN (RF21)" al final del archivo */
 
 window.eliminarResena = async function(id) {
   const r = estado.resenas.find(x => x.id_reseña === id);
@@ -1022,7 +991,8 @@ async function cargarSolicitudes() {
 }
 
 /** RF14 · Vista principal del módulo Inventario. */
-async function vistaInventario(root) {
+async function vistaInventario(root, param) {
+  if (param === 'conteo') return vistaConteo(root);   // RF12
   root.innerHTML = `
     <section class="admin-section">
       <header class="page-head">
@@ -1033,6 +1003,7 @@ async function vistaInventario(root) {
         <div class="actions">
           <button type="button" class="btn btn-quiet" data-requiere="inventario:editar" onclick="editarMinimoDefecto()" title="RF11: mínimo de los libros que no tienen uno propio">
             <i class="fas fa-sliders" aria-hidden="true"></i> Mínimo por defecto: <b id="inv-min-defecto">${inv.minimoDefecto}</b></button>
+          <a class="btn btn-secondary" href="admin.html#inventario/conteo"><i class="fas fa-clipboard-list" aria-hidden="true"></i> Conteo cíclico</a>
           <button type="button" class="btn btn-secondary" id="inv-refrescar"><i class="fas fa-rotate" aria-hidden="true"></i> Actualizar ahora</button>
         </div>
       </header>
@@ -2196,10 +2167,10 @@ async function pintarKpis() {
           <b class="kpi-valor">${k.pendientes.total}</b>
           <span class="kpi-pie">Pendientes o pagados, sin enviar</span>
         </a>
-        <a class="kpi ${k.tickets.total ? 'kpi-atencion' : ''}" href="admin.html#${k.tickets.devoluciones ? 'inventario' : 'facturas'}">
+        <a class="kpi ${k.tickets.total ? 'kpi-atencion' : ''}" href="admin.html#${k.tickets.casos ? 'soporte' : (k.tickets.devoluciones ? 'inventario' : 'facturas')}">
           <span class="kpi-label">Tickets abiertos</span>
           <b class="kpi-valor">${k.tickets.total}</b>
-          <span class="kpi-pie">${k.tickets.devoluciones} devolución(es) · ${k.tickets.facturasRechazadas} factura(s) rechazada(s)</span>
+          <span class="kpi-pie">${k.tickets.casos} caso(s) de clientes · ${k.tickets.devoluciones} devolución(es) · ${k.tickets.facturasRechazadas} factura(s) rechazada(s)</span>
         </a>
         <a class="kpi ${k.stockBajo ? 'kpi-atencion' : ''}" href="admin.html#inventario">
           <span class="kpi-label">Libros con stock bajo</span>
@@ -2623,4 +2594,626 @@ function exportarExcel() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+
+/* ---------------------------------------------------------------
+   RESEÑAS · MODERACIÓN (RF21)
+   Las reseñas nuevas llegan "Pendientes" (RF29). Aquí se aprueban, se rechazan
+   (con un motivo opcional que ve el lector) o se eliminan. Solo las aprobadas
+   salen en la ficha del libro y cuentan para sus estrellas.
+   --------------------------------------------------------------- */
+const ESTADO_RESENA = {
+  Pendiente: { clase: 'status-bajo', titulo: 'Pendientes' },
+  Aprobada: { clase: 'status-ok', titulo: 'Aprobadas' },
+  Rechazada: { clase: 'status-out', titulo: 'Rechazadas' }
+};
+
+function vistaResenas(root) {
+  if (!estado.cargado.resenas) { root.innerHTML = errorConexion('las reseñas'); return; }
+  const f = estado.filtros.resenas;
+  f.estado ??= 'Pendiente';
+  const cuenta = (e) => estado.resenas.filter(r => r.estado === e).length;
+  const aprobadas = estado.resenas.filter(r => r.estado === 'Aprobada');
+  const media = aprobadas.length ? nota(aprobadas.reduce((s, r) => s + parseFloat(r.calificacion || 0), 0) / aprobadas.length) : '—';
+  const libros = [...new Set(estado.resenas.map(r => r.libro_titulo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div><h1>Reseñas</h1><p>${cuenta('Pendiente')} por revisar · ${aprobadas.length} publicadas · media ${media}</p></div>
+      </header>
+      <nav class="tabs-reporte" aria-label="Estado de las reseñas">
+        ${Object.keys(ESTADO_RESENA).map(e => `<a href="#" data-estado="${e}" ${f.estado === e ? 'aria-current="page"' : ''}>${ESTADO_RESENA[e].titulo} <span class="field-hint">(${cuenta(e)})</span></a>`).join('')}
+      </nav>
+      <div class="toolbar">
+        <label class="search"><span class="sr-only">Buscar reseñas</span><i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" class="input" id="r-q" placeholder="Texto o lector" value="${esc(f.q)}" /></label>
+        <label><span class="sr-only">Libro</span><select class="select" id="r-libro">
+          <option value="">Todos los libros</option>
+          ${libros.map(t => `<option ${f.libro === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select></label>
+      </div>
+      <ul class="panel list moderacion" id="resenas-lista"></ul>
+    </section>`;
+
+  const pintar = () => {
+    f.q = document.getElementById('r-q').value;
+    f.libro = document.getElementById('r-libro').value;
+    const q = f.q.trim().toLowerCase();
+    const filas = estado.resenas.filter(r => r.estado === f.estado &&
+      (!q || `${r.reseña || ''} ${r.usuario_nombre}`.toLowerCase().includes(q)) &&
+      (!f.libro || r.libro_titulo === f.libro));
+    const lista = document.getElementById('resenas-lista');
+    lista.innerHTML = filas.length ? filas.map(r => `
+      <li>
+        <div class="grow">
+          <b>${esc(r.libro_titulo || 'Libro eliminado')}</b>
+          <span>${esc(r.usuario_nombre)} · ${fecha(r.fecha)} · <span class="rating"><i class="fas fa-star" aria-hidden="true"></i>${nota(r.calificacion)}</span></span>
+          <p class="quote">${r.reseña ? esc(r.reseña) : '<i>Sin comentario, solo calificación.</i>'}</p>
+          ${r.estado !== 'Pendiente' && r.moderador ? `<span class="field-hint">${r.estado} por ${esc(r.moderador)} el ${fecha(r.fecha_moderacion)}${r.motivo_moderacion ? ` · Motivo: ${esc(r.motivo_moderacion)}` : ''}</span>` : ''}
+        </div>
+        <div class="moderar-acciones">
+          ${r.estado !== 'Aprobada' ? `<button type="button" class="btn btn-primary btn-sm" data-requiere="resenas:editar" onclick="moderarResena(${r.id_reseña}, 'aprobar')"><i class="fas fa-check" aria-hidden="true"></i> Aprobar</button>` : ''}
+          ${r.estado !== 'Rechazada' ? `<button type="button" class="btn btn-secondary btn-sm" data-requiere="resenas:editar" onclick="moderarResena(${r.id_reseña}, 'rechazar')"><i class="fas fa-ban" aria-hidden="true"></i> Rechazar</button>` : ''}
+          <button type="button" class="icon-btn danger" data-requiere="resenas:editar" onclick="eliminarResena(${r.id_reseña})" aria-label="Eliminar reseña" title="Eliminar"><i class="fas fa-trash-can"></i></button>
+        </div>
+      </li>`).join('') : `<li class="list-empty">${f.estado === 'Pendiente' ? 'No hay reseñas esperando aprobación.' : 'Ninguna reseña en esta lista.'}</li>`;
+    aplicarPermisos(lista);
+  };
+  pintar();
+  document.getElementById('r-q').addEventListener('input', pintar);
+  document.getElementById('r-libro').addEventListener('input', pintar);
+  root.querySelectorAll('[data-estado]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    f.estado = a.dataset.estado;
+    vistaResenas(root);
+    aplicarPermisos(root);
+  }));
+}
+
+/** RF21 · Aprobar o rechazar (al rechazar se puede escribir el motivo). */
+window.moderarResena = async function(id, decision) {
+  let motivo = '';
+  if (decision === 'rechazar') {
+    motivo = await pedirTexto({ titulo: 'Rechazar reseña', mensaje: 'Motivo del rechazo (lo verá el lector):', placeholder: 'Ej. Lenguaje ofensivo', confirmar: 'Rechazar' });
+    if (motivo === null) return;
+  }
+  try {
+    const res = await window.fetchAPI(`/api/resenas/${id}/moderar`, { method: 'PUT', body: JSON.stringify({ decision, motivo }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo moderar la reseña');
+    window.showToast(data.message);
+    await Promise.all([cargarResenas(), cargarLibros()]);
+    enrutar();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/* ---------------------------------------------------------------
+   ATENCIÓN AL CLIENTE (RF28 + RF30) · módulo "soporte"
+   #soporte          -> bandeja de casos, filtrable por estado y cliente
+   #soporte/:id      -> el caso con todo su historial, responder y cambiar estado
+   La bandeja se refresca cada 20 s mientras estés en la sección.
+   --------------------------------------------------------------- */
+const sop = { filtros: { estado: '', cliente: '' }, timer: null, casosAbiertos: 0 };
+const ESTADO_CASO = {
+  Abierto: 'status-bajo', 'En proceso': 'status-admin', Cerrado: 'status-ok'
+};
+
+function detenerSoporte() {
+  if (sop.timer) clearInterval(sop.timer);
+  sop.timer = null;
+}
+
+/** Cuántos casos sin cerrar hay (para el contador del menú). */
+async function cargarConteoCasos() {
+  if (!window.puede('soporte')) return;
+  try {
+    const res = await window.fetchAPI('/api/casos');
+    if (!res.ok) return;
+    const { totales } = await res.json();
+    sop.casosAbiertos = (totales.Abierto || 0) + (totales['En proceso'] || 0);
+  } catch {
+    // sin conexión
+  }
+}
+
+function vistaSoporte(root, param) {
+  if (param) return vistaCaso(root, Number(param));
+  const f = sop.filtros;
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div><h1>Atención al cliente</h1><p>Mensajes de los clientes sobre sus pedidos. Cada conversación es un caso.</p></div>
+      </header>
+      <div class="summary-strip" id="sop-totales"></div>
+      <form class="toolbar" id="sop-filtros" onsubmit="return false">
+        <label class="search"><span class="sr-only">Buscar cliente</span><i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" class="input" name="cliente" placeholder="Cliente, correo, N.º de caso o pedido" value="${esc(f.cliente)}" /></label>
+        <label><span class="sr-only">Estado</span><select class="select" name="estado">
+          <option value="">Todos los estados</option>
+          ${Object.keys(ESTADO_CASO).map(e => `<option ${f.estado === e ? 'selected' : ''}>${e}</option>`).join('')}
+        </select></label>
+      </form>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Caso</th><th>Cliente</th><th>Motivo</th><th>Último mensaje</th><th>Estado</th><th>Actualizado</th></tr></thead>
+          <tbody id="sop-tbody"><tr><td colspan="6"><p class="list-empty">Cargando casos…</p></td></tr></tbody>
+        </table>
+      </div>
+    </section>`;
+  const form = document.getElementById('sop-filtros');
+  let espera;
+  form.cliente.addEventListener('input', () => { clearTimeout(espera); espera = setTimeout(() => { f.cliente = form.cliente.value.trim(); buscarCasosSoporte(); }, 300); });
+  form.estado.addEventListener('change', () => { f.estado = form.estado.value; buscarCasosSoporte(); });
+  buscarCasosSoporte();
+  sop.timer = setInterval(() => { if (document.visibilityState === 'visible') buscarCasosSoporte(); }, 20000);
+}
+
+async function buscarCasosSoporte() {
+  const q = new URLSearchParams();
+  if (sop.filtros.estado) q.set('estado', sop.filtros.estado);
+  if (sop.filtros.cliente) q.set('cliente', sop.filtros.cliente);
+  try {
+    const res = await window.fetchAPI(`/api/casos?${q}`);
+    if (!res.ok) throw await leerError(res, 'No se pudieron cargar los casos');
+    const { casos, totales } = await res.json();
+    const tbody = document.getElementById('sop-tbody');
+    if (!tbody) return;
+    sop.casosAbiertos = totales.Abierto + totales['En proceso'];
+    actualizarConteoRail();
+    document.getElementById('sop-totales').innerHTML = `
+      <div class="${totales.Abierto ? 'warn' : ''}"><b>${totales.Abierto}</b><span>Abiertos (sin respuesta)</span></div>
+      <div><b>${totales['En proceso']}</b><span>En proceso</span></div>
+      <div><b>${totales.Cerrado}</b><span>Cerrados</span></div>`;
+    tbody.innerHTML = casos.length ? casos.map(c => `
+      <tr class="fila-clic" onclick="location.hash='soporte/${c.id_caso}'">
+        <td class="mono"><a class="link" href="admin.html#soporte/${c.id_caso}">${window.numeroRegistro(c.id_caso)}</a>${c.id_pedido ? `<div class="field-hint">Pedido ${window.numeroRegistro(c.id_pedido)}</div>` : ''}</td>
+        <td><b>${esc(c.cliente)}</b><div class="field-hint">${esc(c.cliente_email)}</div></td>
+        <td>${esc(c.motivo)}</td>
+        <td style="max-width:36ch">${c.ultimo_es_personal ? '<span class="field-hint">Tú: </span>' : ''}${esc((c.ultimo_mensaje || '').slice(0, 90))}${(c.ultimo_mensaje || '').length > 90 ? '…' : ''}</td>
+        <td><span class="status ${ESTADO_CASO[c.estado]}">${esc(c.estado)}</span>${c.asignado ? `<div class="field-hint">${esc(c.asignado)}</div>` : ''}</td>
+        <td class="mono">${fechaHora(c.fecha_actualizacion)}</td>
+      </tr>`).join('') : `<tr><td colspan="6"><div class="empty" style="padding:28px"><p>${sop.filtros.estado || sop.filtros.cliente ? 'Ningún caso coincide con el filtro.' : 'Todavía no hay casos. Cuando un cliente pulse «Contactar» en su pedido, aparecerá aquí.'}</p></div></td></tr>`;
+  } catch (e) {
+    const tbody = document.getElementById('sop-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6"><p class="list-empty">${esc(e.message)}</p></td></tr>`;
+  }
+}
+
+async function vistaCaso(root, idCaso) {
+  root.innerHTML = '<div class="empty"><p>Cargando caso…</p></div>';
+  let caso;
+  try {
+    const res = await window.fetchAPI(`/api/casos/${idCaso}`);
+    if (!res.ok) throw await leerError(res, 'No se pudo cargar el caso');
+    caso = (await res.json()).caso;
+  } catch (e) {
+    root.innerHTML = `<div class="panel"><div class="empty"><h2>${esc(e.message)}</h2><a class="btn btn-secondary" href="admin.html#soporte">Volver a la bandeja</a></div></div>`;
+    return;
+  }
+  const editar = window.puede('soporte', 'editar');
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div>
+          <a class="link" href="admin.html#soporte"><i class="fas fa-arrow-left" aria-hidden="true"></i> Bandeja</a>
+          <h1>Caso ${window.numeroRegistro(caso.id_caso)} <span class="status ${ESTADO_CASO[caso.estado]}">${esc(caso.estado)}</span></h1>
+          <p>${esc(caso.motivo)} · abierto el ${fechaHora(caso.fecha_creacion)}${caso.asignado ? ` · lo atiende ${esc(caso.asignado)}` : ''}</p>
+        </div>
+        ${editar ? `<div class="actions">
+          ${caso.estado !== 'En proceso' && caso.estado !== 'Cerrado' ? `<button type="button" class="btn btn-secondary" onclick="estadoCaso(${caso.id_caso}, 'En proceso')">Tomar caso</button>` : ''}
+          ${caso.estado !== 'Cerrado' ? `<button type="button" class="btn btn-primary" onclick="estadoCaso(${caso.id_caso}, 'Cerrado')"><i class="fas fa-check" aria-hidden="true"></i> Cerrar caso</button>`
+            : `<button type="button" class="btn btn-secondary" onclick="estadoCaso(${caso.id_caso}, 'Abierto')">Reabrir</button>`}
+        </div>` : ''}
+      </header>
+      <div class="caso-layout">
+        <section class="panel">
+          <div class="panel-head"><h2>Historial</h2><span class="field-hint">${caso.historial.length} mensaje(s)</span></div>
+          <ol class="chat chat-panel">
+            ${caso.historial.map(m => `
+              <li class="${m.es_personal ? 'chat-tienda' : 'chat-yo'}">
+                <span class="chat-autor">${m.es_personal ? `${esc(m.autor || 'Soporte')} (librería)` : esc(caso.cliente)} · <time>${fechaHora(m.fecha)}</time></span>
+                <p>${esc(m.mensaje)}</p>
+              </li>`).join('')}
+          </ol>
+          ${editar ? `<form class="review-form" id="form-respuesta" style="padding:0 20px 20px" novalidate>
+            <label class="field"><span class="field-label">Responder al cliente</span>
+              <textarea class="textarea" name="mensaje" maxlength="1000" required placeholder="La respuesta le llega por correo y la ve en «Mis compras»"></textarea></label>
+            <div><button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar respuesta</button></div>
+          </form>` : ''}
+        </section>
+        <aside class="panel caso-datos">
+          <div class="panel-head"><h2>Cliente</h2></div>
+          <dl class="ficha-facts" style="padding:14px 20px">
+            <div><dt>Nombre</dt><dd>${esc(caso.cliente)}</dd></div>
+            <div><dt>Correo</dt><dd>${esc(caso.cliente_email)}</dd></div>
+            <div><dt>Pedido</dt><dd>${caso.id_pedido ? `<a class="link" href="admin.html#inventario">${window.numeroRegistro(caso.id_pedido)}</a>` : 'Consulta general'}</dd></div>
+            ${caso.fecha_cierre ? `<div><dt>Cerrado</dt><dd>${fechaHora(caso.fecha_cierre)}</dd></div>` : ''}
+          </dl>
+        </aside>
+      </div>
+    </section>`;
+  document.querySelector('.chat-panel li:last-child')?.scrollIntoView({ block: 'nearest' });
+  document.getElementById('form-respuesta')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const mensaje = e.target.mensaje.value.trim();
+    if (mensaje.length < 3) { window.showToast('Escribe la respuesta (mínimo 3 caracteres).', 'error'); return; }
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    try {
+      const res = await window.fetchAPI(`/api/casos/${idCaso}/mensajes`, { method: 'POST', body: JSON.stringify({ mensaje }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo enviar');
+      window.showToast('Respuesta enviada al cliente.');
+      vistaCaso(root, idCaso);
+    } catch (err) {
+      window.showToast(err.message, 'error');
+      btn.disabled = false;
+    }
+  });
+}
+
+window.estadoCaso = async function(idCaso, estadoNuevo) {
+  try {
+    const res = await window.fetchAPI(`/api/casos/${idCaso}/estado`, { method: 'PUT', body: JSON.stringify({ estado: estadoNuevo }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar el estado');
+    window.showToast(data.message);
+    await cargarConteoCasos();
+    actualizarConteoRail();
+    vistaCaso(document.getElementById('admin-root'), idCaso);
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/* ---------------------------------------------------------------
+   REGISTRO DE ACTIVIDAD (RF15) · módulo "auditoria" (solo administrador)
+   Cada cambio en el sistema queda guardado por el servidor (services/logs.js).
+   Aquí se filtra por usuario, acción, módulo, resultado y fechas.
+   --------------------------------------------------------------- */
+const aud = { filtros: { usuario: '', accion: '', modulo: '', resultado: '', desde: '', hasta: '' }, pagina: 1, datos: null };
+
+function vistaAuditoria(root) {
+  const f = aud.filtros;
+  root.innerHTML = `
+    <section class="admin-section reporte">
+      <header class="page-head">
+        <div><h1>Registro de actividad</h1><p>Quién hizo qué y cuándo: inicios de sesión, cambios en los datos y ventas.</p></div>
+        <div class="actions no-imprimir"><button type="button" class="btn btn-secondary" id="aud-excel"><i class="fas fa-file-excel" aria-hidden="true"></i> Excel</button></div>
+      </header>
+      <div class="summary-strip" id="aud-resumen"></div>
+      <form class="panel filtros-facturas filtros-auditoria no-imprimir" id="form-aud" novalidate>
+        <label class="field"><span class="field-label">Usuario</span><select class="select" name="usuario"><option value="">Todos</option></select></label>
+        <label class="field"><span class="field-label">Acción</span><select class="select" name="accion"><option value="">Todas</option></select></label>
+        <label class="field"><span class="field-label">Módulo</span><select class="select" name="modulo"><option value="">Todos</option></select></label>
+        <label class="field"><span class="field-label">Resultado</span><select class="select" name="resultado">
+          <option value="">Todos</option><option ${f.resultado === 'OK' ? 'selected' : ''} value="OK">Correcto</option><option ${f.resultado === 'Fallido' ? 'selected' : ''} value="Fallido">Fallido</option></select></label>
+        <label class="field"><span class="field-label">Desde</span><input class="input" type="date" name="desde" value="${esc(f.desde)}" /></label>
+        <label class="field"><span class="field-label">Hasta</span><input class="input" type="date" name="hasta" value="${esc(f.hasta)}" /></label>
+        <div class="filtros-acciones"><button type="submit" class="btn btn-primary"><i class="fas fa-filter" aria-hidden="true"></i> Filtrar</button>
+          <button type="button" class="btn btn-quiet" id="aud-limpiar">Limpiar</button></div>
+      </form>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Módulo</th><th>Detalle</th><th>Resultado</th></tr></thead>
+          <tbody id="aud-tbody"><tr><td colspan="6"><p class="list-empty">Cargando…</p></td></tr></tbody>
+        </table>
+        <div class="table-foot" id="aud-foot"></div>
+      </div>
+    </section>`;
+  const form = document.getElementById('form-aud');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (form.desde.value && form.hasta.value && form.desde.value > form.hasta.value) { window.showToast('La fecha "desde" no puede ser posterior a "hasta".', 'error'); return; }
+    ['usuario', 'accion', 'modulo', 'resultado', 'desde', 'hasta'].forEach(k => { f[k] = form[k].value; });
+    aud.pagina = 1;
+    buscarLogs();
+  });
+  form.querySelectorAll('select').forEach(s => s.addEventListener('change', () => form.requestSubmit()));
+  document.getElementById('aud-limpiar').addEventListener('click', () => {
+    Object.keys(f).forEach(k => { f[k] = ''; });
+    aud.pagina = 1;
+    vistaAuditoria(root);
+  });
+  document.getElementById('aud-excel').addEventListener('click', exportarLogs);
+  buscarLogs();
+}
+
+async function buscarLogs() {
+  const q = new URLSearchParams({ pagina: aud.pagina });
+  Object.entries(aud.filtros).forEach(([k, v]) => { if (v) q.set(k, v); });
+  const tbody = document.getElementById('aud-tbody');
+  try {
+    const res = await window.fetchAPI(`/api/auditoria?${q}`);
+    if (!res.ok) throw await leerError(res, 'No se pudo consultar el registro');
+    const d = aud.datos = await res.json();
+    if (!document.getElementById('aud-tbody')) return;
+    const form = document.getElementById('form-aud');
+    const llenar = (sel, opciones, valor) => {
+      const primera = sel.options[0].outerHTML;
+      sel.innerHTML = primera + opciones.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(valor) ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    };
+    llenar(form.usuario, d.usuarios.map(u => [u.id, u.nombre]), aud.filtros.usuario);
+    llenar(form.accion, d.acciones.map(a => [a, a]), aud.filtros.accion);
+    llenar(form.modulo, d.modulos.map(m => [m, NOMBRES_MODULO[m] || m]), aud.filtros.modulo);
+
+    const r = d.resumen;
+    document.getElementById('aud-resumen').innerHTML = `
+      <div><b>${r.total}</b><span>Registros</span></div>
+      <div><b>${r.inicios}</b><span>Inicios de sesión</span></div>
+      <div class="${r.iniciosFallidos ? 'warn' : ''}"><b>${r.iniciosFallidos}</b><span>Inicios fallidos</span></div>
+      <div><b>${r.ventas}</b><span>Ventas</span></div>
+      <div><b>${r.cambios}</b><span>Cambios en datos</span></div>
+      <div class="${r.fallidos ? 'warn' : ''}"><b>${r.fallidos}</b><span>Acciones fallidas</span></div>`;
+    tbody.innerHTML = d.logs.length ? d.logs.map(l => `
+      <tr class="${l.resultado === 'Fallido' ? 'log-fallido' : ''}">
+        <td class="mono">${fechaHora(l.fecha)}</td>
+        <td>${esc(l.usuario_nombre || '—')}${l.ip ? `<div class="field-hint mono">${esc(l.ip)}</div>` : ''}</td>
+        <td><b>${esc(l.accion)}</b></td>
+        <td>${esc(NOMBRES_MODULO[l.modulo] || l.modulo)}</td>
+        <td style="max-width:48ch">${esc(l.descripcion || '')}</td>
+        <td><span class="status ${l.resultado === 'OK' ? 'status-ok' : 'status-out'}">${l.resultado === 'OK' ? 'Correcto' : 'Fallido'}</span></td>
+      </tr>`).join('') : '<tr><td colspan="6"><div class="empty" style="padding:28px"><p>No hay registros con ese filtro.</p></div></td></tr>';
+    const paginas = Math.max(1, Math.ceil(d.total / d.porPagina));
+    document.getElementById('aud-foot').innerHTML = `${d.total} registro(s) · página ${d.pagina} de ${paginas}
+      ${d.pagina > 1 ? '<button type="button" class="link" id="aud-ant">← Anterior</button>' : ''}
+      ${d.pagina < paginas ? '<button type="button" class="link" id="aud-sig">Siguiente →</button>' : ''}`;
+    document.getElementById('aud-ant')?.addEventListener('click', () => { aud.pagina--; buscarLogs(); });
+    document.getElementById('aud-sig')?.addEventListener('click', () => { aud.pagina++; buscarLogs(); });
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6"><p class="list-empty">${esc(e.message)}</p></td></tr>`;
+  }
+}
+
+/** Exporta la página actual del registro a CSV (Excel). */
+function exportarLogs() {
+  const d = aud.datos;
+  if (!d?.logs.length) { window.showToast('No hay registros para exportar.', 'error'); return; }
+  const celda = (v) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return /[";]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const filas = [['Fecha', 'Usuario', 'IP', 'Acción', 'Módulo', 'Detalle', 'Resultado'].join(';'),
+    ...d.logs.map(l => [fechaHora(l.fecha), l.usuario_nombre, l.ip, l.accion, NOMBRES_MODULO[l.modulo] || l.modulo, l.descripcion, l.resultado].map(celda).join(';'))];
+  const blob = new Blob(['﻿' + filas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `registro-actividad-pagina-${d.pagina}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------------------------------------------------------------
+   CONTEO CÍCLICO (RF12) · #inventario/conteo
+   1. "Iniciar conteo": el sistema guarda una foto del stock de cada libro.
+   2. Escribes lo que contaste en el estante: la diferencia aparece al instante.
+   3. Para las diferencias escribes el motivo y "Ajustar stock" corrige el inventario
+      (queda en el historial de movimientos con el motivo).
+   4. "Cerrar conteo".
+   --------------------------------------------------------------- */
+async function vistaConteo(root) {
+  root.innerHTML = '<div class="empty"><p>Cargando conteos…</p></div>';
+  let conteos;
+  try {
+    const res = await window.fetchAPI('/api/inventario/conteos');
+    if (!res.ok) throw await leerError(res, 'No se pudieron cargar los conteos');
+    conteos = (await res.json()).conteos;
+  } catch (e) {
+    root.innerHTML = errorConexion('los conteos');
+    return;
+  }
+  const abierto = conteos.find(c => c.estado === 'Abierto');
+  if (abierto) return vistaConteoAbierto(root, abierto.id_conteo);
+  const generos = [...new Set(estado.libros.map(l => l.genero).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div><a class="link" href="admin.html#inventario"><i class="fas fa-arrow-left" aria-hidden="true"></i> Inventario</a>
+          <h1>Conteo cíclico</h1><p>Cuenta los libros del estante y compáralos con lo que dice el sistema.</p></div>
+      </header>
+      <form class="panel conteo-nuevo" id="form-conteo" data-requiere="inventario:editar" novalidate>
+        <label class="field"><span class="field-label">¿Qué vas a contar?</span>
+          <select class="select" name="genero"><option value="">Todo el inventario (${estado.libros.length} libros)</option>
+            ${generos.map(g => `<option value="${esc(g)}">Solo ${esc(g)}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Nota (opcional)</span><input class="input" name="nota" maxlength="200" placeholder="Ej. Conteo de fin de mes" /></label>
+        <div><button type="submit" class="btn btn-primary"><i class="fas fa-clipboard-list" aria-hidden="true"></i> Iniciar conteo</button></div>
+      </form>
+      <section class="panel">
+        <div class="panel-head"><h2>Conteos anteriores</h2></div>
+        ${conteos.length ? `<ul class="list">${conteos.map(c => `
+          <li><div class="grow"><b>Conteo ${window.numeroRegistro(c.id_conteo)}${c.nota ? ` · ${esc(c.nota)}` : ''}</b>
+            <span>${fechaHora(c.fecha_inicio)} · ${esc(c.usuario || '—')} · ${c.contados}/${c.libros} contados · ${c.con_diferencia} con diferencia · ${c.ajustados} ajustados</span></div>
+            <a class="btn btn-quiet btn-sm" href="#" onclick="event.preventDefault(); vistaConteoAbierto(document.getElementById('admin-root'), ${c.id_conteo})">Ver</a></li>`).join('')}</ul>`
+          : '<p class="list-empty">Todavía no se ha hecho ningún conteo.</p>'}
+      </section>
+    </section>`;
+  aplicarPermisos(root);
+  document.getElementById('form-conteo')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await window.fetchAPI('/api/inventario/conteos', { method: 'POST', body: JSON.stringify({ genero: e.target.genero.value, nota: e.target.nota.value }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar el conteo');
+      window.showToast(data.message);
+      vistaConteoAbierto(root, data.idConteo);
+    } catch (err) {
+      window.showToast(err.message, 'error');
+    }
+  });
+}
+
+window.vistaConteoAbierto = async function(root, idConteo) {
+  let d;
+  try {
+    const res = await window.fetchAPI(`/api/inventario/conteos/${idConteo}`);
+    if (!res.ok) throw await leerError(res, 'No se pudo cargar el conteo');
+    d = await res.json();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+    return;
+  }
+  const abierto = d.conteo.estado === 'Abierto';
+  const editar = abierto && window.puede('inventario', 'editar');
+  const contados = d.lineas.filter(l => l.cantidad_contada !== null).length;
+  const conDif = d.lineas.filter(l => l.diferencia);
+  const porAjustar = conDif.filter(l => !l.ajustado);
+  const signo = (n) => (n > 0 ? `+${n}` : String(n));
+
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div><a class="link" href="admin.html#inventario/conteo"><i class="fas fa-arrow-left" aria-hidden="true"></i> Conteos</a>
+          <h1>Conteo ${window.numeroRegistro(idConteo)} <span class="status ${abierto ? 'status-bajo' : 'status-ok'}">${d.conteo.estado}</span></h1>
+          <p>${d.conteo.nota ? `${esc(d.conteo.nota)} · ` : ''}iniciado el ${fechaHora(d.conteo.fecha_inicio)} por ${esc(d.conteo.usuario || '—')}</p></div>
+        ${editar ? `<div class="actions"><button type="button" class="btn btn-secondary" id="conteo-cerrar"><i class="fas fa-lock" aria-hidden="true"></i> Cerrar conteo</button></div>` : ''}
+      </header>
+      <div class="summary-strip">
+        <div><b>${contados}/${d.lineas.length}</b><span>Libros contados</span></div>
+        <div class="${conDif.length ? 'warn' : ''}"><b>${conDif.length}</b><span>Con diferencia</span></div>
+        <div><b>${porAjustar.length}</b><span>Por ajustar</span></div>
+      </div>
+      <p class="field-hint" style="margin-bottom:10px">«En sistema» es lo que había al iniciar el conteo. La diferencia se suma o resta al stock actual al ajustar, así no se pierden las ventas hechas mientras contabas.</p>
+      <div class="table-wrap">
+        <table class="table tabla-conteo">
+          <thead><tr><th>Libro</th><th class="right">En sistema</th><th class="right">Contado</th><th class="right">Diferencia</th><th>Motivo del ajuste</th><th>Ajuste</th></tr></thead>
+          <tbody>${d.lineas.map(l => `
+            <tr data-libro="${l.id_libro}">
+              <td><b>${esc(l.titulo)}</b><div class="field-hint">${esc(l.ISBN || l.autor || '')}</div></td>
+              <td class="right num">${l.stock_sistema}</td>
+              <td class="right">${editar && !l.ajustado
+                ? `<input class="input num input-conteo" type="number" min="0" max="9999" step="1" value="${l.cantidad_contada ?? ''}" aria-label="Cantidad contada de ${esc(l.titulo)}" />`
+                : `<span class="num">${l.cantidad_contada ?? '—'}</span>`}</td>
+              <td class="right"><span class="dif num ${l.diferencia > 0 ? 'dif-mas' : (l.diferencia < 0 ? 'dif-menos' : '')}">${l.diferencia === null ? '—' : signo(l.diferencia)}</span></td>
+              <td>${editar && !l.ajustado
+                ? `<input class="input input-motivo" maxlength="150" placeholder="${l.diferencia ? 'Obligatorio' : '—'}" ${l.diferencia ? '' : 'disabled'} aria-label="Motivo del ajuste de ${esc(l.titulo)}" />`
+                : esc(l.motivo || '—')}</td>
+              <td>${l.ajustado ? '<span class="status status-ok">Ajustado</span>' : (l.diferencia ? '<span class="status status-bajo">Pendiente</span>' : '—')}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      ${editar ? `<div class="conteo-pie"><button type="button" class="btn btn-primary" id="conteo-ajustar" ${porAjustar.length ? '' : 'disabled'}><i class="fas fa-scale-balanced" aria-hidden="true"></i> Ajustar stock de los libros con diferencia</button></div>` : ''}
+    </section>`;
+  if (!editar) return;
+
+  // Guardar lo contado al salir del campo (o con Enter) y recalcular la diferencia
+  root.querySelectorAll('.input-conteo').forEach(inp => {
+    const guardar = async () => {
+      const fila = inp.closest('tr');
+      const v = inp.value.trim();
+      const n = Number(v);
+      if (v !== '' && (!Number.isInteger(n) || n < 0 || n > 9999)) { window.showToast('La cantidad debe ser un entero de 0 a 9999.', 'error'); return; }
+      if (inp.dataset.guardado === v) return;
+      try {
+        const res = await window.fetchAPI(`/api/inventario/conteos/${idConteo}/libros/${fila.dataset.libro}`, { method: 'PUT', body: JSON.stringify({ cantidad: v === '' ? null : n }) });
+        if (!res.ok) throw await leerError(res, 'No se pudo guardar');
+        inp.dataset.guardado = v;
+        const linea = d.lineas.find(l => String(l.id_libro) === fila.dataset.libro);
+        linea.cantidad_contada = v === '' ? null : n;
+        linea.diferencia = v === '' ? null : n - linea.stock_sistema;
+        const dif = fila.querySelector('.dif');
+        dif.textContent = linea.diferencia === null ? '—' : signo(linea.diferencia);
+        dif.className = `dif num ${linea.diferencia > 0 ? 'dif-mas' : (linea.diferencia < 0 ? 'dif-menos' : '')}`;
+        const motivo = fila.querySelector('.input-motivo');
+        motivo.disabled = !linea.diferencia;
+        motivo.placeholder = linea.diferencia ? 'Obligatorio' : '—';
+        fila.lastElementChild.innerHTML = linea.diferencia ? '<span class="status status-bajo">Pendiente</span>' : '—';
+        document.getElementById('conteo-ajustar').disabled = !d.lineas.some(l => l.diferencia && !l.ajustado);
+      } catch (e) {
+        window.showToast(e.message, 'error');
+      }
+    };
+    inp.dataset.guardado = inp.value;
+    inp.addEventListener('change', guardar);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  });
+
+  document.getElementById('conteo-ajustar').addEventListener('click', async () => {
+    const filas = [...root.querySelectorAll('tr[data-libro]')].filter(tr => {
+      const l = d.lineas.find(x => String(x.id_libro) === tr.dataset.libro);
+      return l.diferencia && !l.ajustado;
+    });
+    const sinMotivo = filas.find(tr => tr.querySelector('.input-motivo').value.trim().length < 3);
+    if (sinMotivo) {
+      window.showToast('Escribe el motivo de cada ajuste (mínimo 3 caracteres).', 'error');
+      sinMotivo.querySelector('.input-motivo').focus();
+      return;
+    }
+    const ok = await window.confirmar({
+      titulo: '¿Ajustar el stock?',
+      mensaje: `Se corregirá el stock de ${filas.length} libro(s) según lo contado. Queda registrado en el historial con el motivo.`,
+      confirmar: 'Ajustar stock'
+    });
+    if (!ok) return;
+    try {
+      const lineas = filas.map(tr => ({ id_libro: Number(tr.dataset.libro), motivo: tr.querySelector('.input-motivo').value.trim() }));
+      const res = await window.fetchAPI(`/api/inventario/conteos/${idConteo}/ajustar`, { method: 'POST', body: JSON.stringify({ lineas }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo ajustar');
+      window.showToast(data.message);
+      await cargarLibros();
+      vistaConteoAbierto(root, idConteo);
+    } catch (e) {
+      window.showToast(e.message, 'error');
+    }
+  });
+
+  document.getElementById('conteo-cerrar').addEventListener('click', async () => {
+    const pendientes = d.lineas.filter(l => l.diferencia && !l.ajustado).length;
+    const ok = await window.confirmar({
+      titulo: '¿Cerrar el conteo?',
+      mensaje: pendientes ? `Hay ${pendientes} diferencia(s) sin ajustar: el stock de esos libros quedará como está.` : 'Ya no se podrá editar.',
+      confirmar: 'Cerrar conteo', peligro: pendientes > 0
+    });
+    if (!ok) return;
+    try {
+      const res = await window.fetchAPI(`/api/inventario/conteos/${idConteo}/cerrar`, { method: 'POST' });
+      if (!res.ok) throw await leerError(res, 'No se pudo cerrar');
+      window.showToast('Conteo cerrado.');
+      vistaConteo(root);
+    } catch (e) {
+      window.showToast(e.message, 'error');
+    }
+  });
+};
+
+/* ---------------------------------------------------------------
+   PROMOCIONES (RF26) · panel dentro de Configuración
+   El correo les llega solo a los clientes que activaron "Promociones" en su perfil.
+   --------------------------------------------------------------- */
+function agregarPanelPromocion(root) {
+  const seccion = root.querySelector('.admin-section');
+  if (!seccion || !window.puede('configuracion', 'editar')) return;
+  const panel = document.createElement('section');
+  panel.className = 'panel';
+  panel.style.marginTop = '26px';
+  panel.innerHTML = `
+    <div class="panel-head"><h2>Enviar una promoción</h2><span class="field-hint">Solo a los clientes suscritos a promociones</span></div>
+    <form id="form-promo" class="review-form" style="padding:16px 20px" novalidate>
+      <label class="field"><span class="field-label">Asunto</span><input class="input" name="asunto" maxlength="120" placeholder="Ej. 20% en clásicos este fin de semana" /></label>
+      <label class="field"><span class="field-label">Mensaje</span><textarea class="textarea" name="mensaje" maxlength="2000" placeholder="Escribe la promoción"></textarea></label>
+      <div><button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar promoción</button></div>
+    </form>`;
+  seccion.appendChild(panel);
+  panel.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const asunto = form.asunto.value.trim();
+    const mensaje = form.mensaje.value.trim();
+    if (asunto.length < 3 || mensaje.length < 5) { window.showToast('Escribe un asunto (3+ caracteres) y un mensaje (5+).', 'error'); return; }
+    const ok = await window.confirmar({ titulo: '¿Enviar la promoción?', mensaje: `«${asunto}» se enviará por correo a los clientes suscritos.`, confirmar: 'Enviar' });
+    if (!ok) return;
+    try {
+      const res = await window.fetchAPI('/api/suscripciones/promocion', { method: 'POST', body: JSON.stringify({ asunto, mensaje }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo enviar');
+      window.showToast(data.message);
+      form.reset();
+    } catch (err) {
+      window.showToast(err.message, 'error');
+    }
+  });
 }

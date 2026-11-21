@@ -175,9 +175,11 @@
         ${window.puede('inventario') ? link('admin.html#inventario', 'fa-boxes-stacked', 'Inventario', seccion === 'inventario', '<span class="count" data-count="solicitudes" hidden></span><span class="count count-alerta" data-count="alertas" hidden></span>') : ''}
         ${window.puede('facturas') ? link('admin.html#facturas', 'fa-file-invoice-dollar', 'Facturas', seccion === 'facturas') : ''}
         ${window.puede('reportes') ? link('admin.html#reportes', 'fa-chart-line', 'Reportes', seccion === 'reportes') : ''}
+        ${window.puede('soporte') ? link('admin.html#soporte', 'fa-headset', 'Atención al cliente', seccion === 'soporte', '<span class="count count-alerta" data-count="casos" hidden></span>') : ''}
         ${window.puede('usuarios') ? link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios') : ''}
-        ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas') : ''}
+        ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas', '<span class="count" data-count="resenas" hidden></span>') : ''}
         ${window.puede('roles') ? link('admin.html#roles', 'fa-user-shield', 'Roles y permisos', seccion === 'roles') : ''}
+        ${window.puede('auditoria') ? link('admin.html#auditoria', 'fa-clipboard-list', 'Registro de actividad', seccion === 'auditoria') : ''}
         ${window.puede('configuracion') ? link('admin.html#configuracion', 'fa-gear', 'Configuración', seccion === 'configuracion') : ''}
         <div class="rail-group">Tienda</div>
         ${link('index.html', 'fa-store', 'Ver catálogo', false)}`;

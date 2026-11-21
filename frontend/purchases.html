@@ -79,6 +79,7 @@
       // No se refresca mientras el cliente escribe una solicitud de devolución.
       setInterval(async () => {
         if (document.visibilityState !== 'visible' || document.getElementById('form-devolucion')) return;
+        if (document.querySelector('#form-contacto textarea')?.value.trim()) return;   // RF28: no borrar lo que escribe
         const abierto = document.getElementById('pedido-sheet').classList.contains('active') ? pedidoAbierto : null;
         await cargarPedidos();
         if (abierto) abrirDetalle(abierto, true);
@@ -215,13 +216,107 @@
               <i class="fas fa-rotate-left" aria-hidden="true"></i> Solicitar devolución
             </button>
           </section>` : ''}
+
+          <!-- RF28: canal con el encargado de pedidos (cada conversación es un caso de soporte, RF30) -->
+          <section class="ficha-section" id="zona-contacto">
+            <h3>¿Tienes dudas sobre este pedido?</h3>
+            <div id="contacto-cuerpo"><p class="field-hint">Cargando conversación…</p></div>
+          </section>
         </div>`;
+      cargarContacto(p.id_pedido);
 
       const sheet = document.getElementById('pedido-sheet');
       sheet.classList.add('active');
       sheet.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
       if (!refresco) sheet.querySelector('.sheet-close').focus();
+    }
+
+    /* ---------------------------------------------------------------
+       RF28 · CONTACTAR AL ENCARGADO DEL PEDIDO
+       - Sin conversación: botón "Contactar" -> formulario (motivo + mensaje) -> crea un caso.
+       - Con conversación: se ve el historial (tus mensajes y las respuestas de la librería)
+         y una caja para seguir escribiendo. Se refresca con el resto de la página cada 15 s.
+       --------------------------------------------------------------- */
+    let motivosCaso = null;
+
+    async function cargarContacto(idPedido) {
+      const caja = document.getElementById('contacto-cuerpo');
+      if (!caja) return;
+      try {
+        const [resCasos, resMot] = await Promise.all([
+          window.fetchAPI(`/api/casos/mios?pedido=${idPedido}`),
+          motivosCaso ? null : fetch(`${window.API_BASE}/api/casos/motivos`)
+        ]);
+        if (resMot) motivosCaso = (await resMot.json()).motivos;
+        const casos = resCasos.ok ? (await resCasos.json()).casos : [];
+        if (pedidoAbierto !== idPedido || !document.getElementById('contacto-cuerpo')) return;
+        pintarContacto(idPedido, casos);
+      } catch {
+        caja.innerHTML = '<p class="field-hint">No pudimos cargar la conversación.</p>';
+      }
+    }
+
+    function pintarContacto(idPedido, casos) {
+      const caja = document.getElementById('contacto-cuerpo');
+      const caso = casos[0];   // el más reciente
+      if (!caso) {
+        caja.innerHTML = `
+          <p class="field-hint" style="margin-bottom:12px">Escríbele al encargado de los pedidos. Tu mensaje le llega con el número de este pedido y verás la respuesta aquí.</p>
+          <button type="button" class="btn btn-secondary" id="btn-contactar"><i class="fas fa-comments" aria-hidden="true"></i> Contactar</button>`;
+        document.getElementById('btn-contactar').addEventListener('click', () => formularioContacto(idPedido, null));
+        return;
+      }
+      const estadoClase = { Abierto: 'status-bajo', 'En proceso': 'status-admin', Cerrado: 'status-ok' }[caso.estado];
+      caja.innerHTML = `
+        <p class="caso-cabecera">Caso <b class="mono">${window.numeroRegistro(caso.id_caso)}</b> · ${esc(caso.motivo)} <span class="status ${estadoClase}">${esc(caso.estado)}</span></p>
+        <ol class="chat">
+          ${caso.historial.map(m => `
+            <li class="${m.es_personal ? 'chat-tienda' : 'chat-yo'}">
+              <span class="chat-autor">${m.es_personal ? 'Librería Andrés' : 'Tú'} · <time>${fechaHora(m.fecha)}</time></span>
+              <p>${esc(m.mensaje)}</p>
+            </li>`).join('')}
+        </ol>
+        ${caso.estado === 'Cerrado' ? '<p class="field-hint">Este caso quedó cerrado. Si escribes de nuevo, se vuelve a abrir.</p>' : ''}`;
+      formularioContacto(idPedido, caso);
+    }
+
+    /** Formulario: sin caso pide motivo; con caso solo el mensaje. */
+    function formularioContacto(idPedido, caso) {
+      const caja = document.getElementById('contacto-cuerpo');
+      document.getElementById('btn-contactar')?.remove();
+      const form = document.createElement('form');
+      form.id = 'form-contacto';
+      form.className = 'review-form';
+      form.noValidate = true;
+      form.innerHTML = `
+        ${caso ? '' : `<label class="field"><span class="field-label">Motivo</span>
+          <select class="select" name="motivo" required>${(motivosCaso || []).map(m => `<option>${esc(m)}</option>`).join('')}</select></label>`}
+        <label class="field"><span class="field-label">${caso ? 'Responder' : 'Tu mensaje'}</span>
+          <textarea class="textarea" name="mensaje" maxlength="1000" required placeholder="${caso ? 'Escribe tu respuesta…' : 'Cuéntanos qué necesitas sobre este pedido'}"></textarea></label>
+        <div><button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar</button></div>`;
+      caja.appendChild(form);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const mensaje = form.mensaje.value.trim();
+        if (mensaje.length < 3) { window.showToast('Escribe tu mensaje (mínimo 3 caracteres).', 'error'); form.mensaje.focus(); return; }
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        try {
+          const res = caso
+            ? await window.fetchAPI(`/api/casos/${caso.id_caso}/mensajes`, { method: 'POST', body: JSON.stringify({ mensaje }) })
+            : await window.fetchAPI('/api/casos', { method: 'POST', body: JSON.stringify({ id_pedido: idPedido, motivo: form.motivo.value, mensaje }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'No se pudo enviar el mensaje');
+          window.showToast(data.message || 'Mensaje enviado');
+          form.mensaje.value = '';
+          await cargarContacto(idPedido);
+        } catch (err) {
+          window.showToast(err.message, 'error');
+          btn.disabled = false;
+        }
+      });
+      if (!caso) form.mensaje.focus();
     }
 
     /**

@@ -31,6 +31,12 @@
         </div>
       </header>
 
+      <!-- RF25: recomendaciones según lo que el usuario vio y compró (o los más vendidos si es nuevo) -->
+      <section class="recomendados" id="recomendados" hidden aria-labelledby="reco-titulo">
+        <div class="reco-head"><h2 id="reco-titulo">Recomendados para ti</h2><p id="reco-sub"></p></div>
+        <div class="reco-fila" id="reco-lista"></div>
+      </section>
+
       <div class="store-bar">
         <label class="search">
           <span class="sr-only">Buscar en el catálogo</span>
@@ -90,6 +96,8 @@
           <p id="detail-desc" class="ficha-desc"></p>
           <div style="display:flex; gap:8px; margin-top:18px; flex-wrap:wrap;">
             <button type="button" class="btn btn-primary btn-lg" id="detail-add"><i class="fas fa-bag-shopping" aria-hidden="true"></i> Añadir al carrito</button>
+            <!-- RF24: favoritos -->
+            <button type="button" class="btn btn-secondary btn-lg fav-detalle" id="detail-fav" aria-pressed="false"><i class="far fa-heart" aria-hidden="true"></i> <span>Agregar a favoritos</span></button>
             <a class="btn btn-secondary btn-lg" id="detail-admin-edit" hidden><i class="fas fa-pen" aria-hidden="true"></i> Editar ficha</a>
           </div>
 
@@ -97,16 +105,18 @@
             <h3>Reseñas de lectores</h3>
             <div class="reviews" id="detail-reviews-list"></div>
 
-            <form class="review-form" id="form-add-review">
+            <!-- RF29: solo quien compró el libro puede reseñarlo; aquí se explica por qué no (o el estado de su reseña) -->
+            <p class="aviso-resena" id="review-estado" hidden></p>
+            <form class="review-form" id="form-add-review" hidden>
               <div class="field">
                 <span class="field-label" id="rating-label">Tu calificación</span>
                 <div class="star-input" id="star-selector" role="radiogroup" aria-labelledby="rating-label"></div>
               </div>
               <label class="field">
-                <span class="field-label">Tu reseña</span>
-                <textarea id="review-comment" class="textarea" placeholder="¿Qué te pareció este libro?" required maxlength="500"></textarea>
+                <span class="field-label">Comentario (opcional)</span>
+                <textarea id="review-comment" class="textarea" placeholder="¿Qué te pareció este libro? (opcional)" maxlength="500"></textarea>
               </label>
-              <div><button type="submit" class="btn btn-secondary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Publicar reseña</button></div>
+              <div><button type="submit" class="btn btn-secondary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Enviar reseña</button></div>
             </form>
           </section>
         </div>
