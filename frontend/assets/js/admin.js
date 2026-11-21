@@ -6,7 +6,7 @@
 
 const esc = (v) => window.esc(v);
 /** RF18 · Módulos de la administración y su nombre visible (mismos que en el backend). */
-const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', facturas: 'Facturas', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion
+const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', facturas: 'Facturas', reportes: 'Reportes', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion · RF8/RF6/RF20: + reportes
 const MODULOS = Object.keys(NOMBRES_MODULO);
 const estado = {
   libros: [],
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   window.addEventListener('hashchange', enrutar);
-  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles(), cargarSolicitudes()]);
+  await Promise.all([cargarLibros(), cargarUsuarios(), cargarResenas(), cargarRoles(), cargarSolicitudes(), cargarAlertas()]);
   enrutar();
 });
 
@@ -88,6 +88,7 @@ async function leerError(res, porDefecto) {
 function enrutar() {
   const [hash, param] = location.hash.replace('#', '').split('/');
   detenerInventarioEnVivo(); // RF14: al cambiar de sección se apaga la actualización automática
+  detenerKpis();             // RF19: lo mismo con el tablero de indicadores
   // Sin sección en la URL: abre el primer módulo que este rol puede ver
   const seccion = hash || MODULOS.find(m => window.puede(m)) || 'resumen';
 
@@ -97,7 +98,7 @@ function enrutar() {
   actualizarConteoRail();
 
   const root = document.getElementById('admin-root');
-  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, facturas: vistaFacturas, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
+  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, facturas: vistaFacturas, reportes: vistaReportes, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
 
   // RF18 · criterio 3: sin permiso para ver el módulo -> acceso denegado
   if (!vistas[seccion] || !window.puede(seccion, 'ver')) {
@@ -147,6 +148,13 @@ function actualizarConteoRail() {
     badgeSol.hidden = pendientes === 0;
     badgeSol.title = `${pendientes} solicitudes de devolución pendientes`;
   }
+  // RF10: avisos de stock bajo sin leer
+  const badgeAlerta = document.querySelector('[data-count="alertas"]');
+  if (badgeAlerta) {
+    badgeAlerta.textContent = inv.sinLeer;
+    badgeAlerta.hidden = !inv.sinLeer;
+    badgeAlerta.title = `${inv.sinLeer} avisos de stock bajo sin leer`;
+  }
 }
 
 function errorConexion(que) {
@@ -185,6 +193,8 @@ function vistaResumen(root) {
           <a class="btn btn-primary" href="admin.html#libros/nuevo" data-requiere="libros:editar"><i class="fas fa-plus" aria-hidden="true"></i> Nuevo libro</a>
         </div>
       </header>
+
+      ${window.isAdmin() ? '<section class="panel kpis-panel" id="kpis" aria-live="polite"><p class="list-empty">Cargando indicadores…</p></section>' : ''}
 
       <div class="summary-strip">
         <div><b>${total}</b><span>Títulos en catálogo</span></div>
@@ -231,6 +241,7 @@ function vistaResumen(root) {
         </section>
       </div>
     </section>`;
+  if (window.isAdmin()) iniciarKpis();   // RF19
 }
 
 /* ---------------------------------------------------------------
@@ -952,14 +963,18 @@ window.eliminarRol = async function(clave) {
 
 /** Cada cuánto se refresca el inventario (milisegundos). */
 const INVENTARIO_CADA_MS = 10000;
-/** Un libro con esta cantidad o menos se marca como "stock bajo". */
-const STOCK_BAJO = 3;
+/* RF11: el "stock bajo" ya no es un número fijo: cada libro trae su `stock_minimo`
+   (el propio o el de por defecto) y se marca bajo cuando stock <= mínimo. */
+const esBajo = (l) => l.stock > 0 && l.stock <= l.stock_minimo;
 
 const inv = {
   libros: [],
   movimientos: [],
   pedidos: [],
   solicitudes: [],       // RF14: solicitudes de devolución de los clientes
+  notificaciones: [],    // RF10: avisos de stock bajo
+  sinLeer: 0,
+  minimoDefecto: 5,      // RF11
   actualizado: null,
   anterior: new Map(),   // id_libro -> stock de la consulta anterior (para el parpadeo)
   q: '',
@@ -984,6 +999,13 @@ async function cargarInventario() {
   inv.libros = datos.libros;
   inv.movimientos = datos.movimientos;
   inv.actualizado = new Date(datos.actualizado);
+  // RF10: si llegó un aviso nuevo mientras miras el panel, se muestra también como aviso flotante
+  if (inv.notificaciones.length && datos.sinLeer > inv.sinLeer && datos.notificaciones[0]) {
+    window.showToast(datos.notificaciones[0].mensaje);
+  }
+  inv.notificaciones = datos.notificaciones || [];
+  inv.sinLeer = datos.sinLeer || 0;
+  inv.minimoDefecto = datos.minimoDefecto ?? 5;
   inv.pedidos = resPed.ok ? (await resPed.json()).pedidos : [];
   await cargarSolicitudes();
 }
@@ -1009,11 +1031,22 @@ async function vistaInventario(root) {
           <p><span class="en-vivo" aria-hidden="true"></span> En tiempo real · <span id="inv-hora">consultando…</span></p>
         </div>
         <div class="actions">
+          <button type="button" class="btn btn-quiet" data-requiere="inventario:editar" onclick="editarMinimoDefecto()" title="RF11: mínimo de los libros que no tienen uno propio">
+            <i class="fas fa-sliders" aria-hidden="true"></i> Mínimo por defecto: <b id="inv-min-defecto">${inv.minimoDefecto}</b></button>
           <button type="button" class="btn btn-secondary" id="inv-refrescar"><i class="fas fa-rotate" aria-hidden="true"></i> Actualizar ahora</button>
         </div>
       </header>
 
       <div class="summary-strip" id="inv-resumen"></div>
+
+      <!-- RF10: avisos cuando un libro llega a su stock mínimo -->
+      <section class="panel" id="inv-alertas-panel" style="margin-bottom:26px">
+        <div class="panel-head">
+          <h2>Avisos de stock bajo <span class="status status-bajo" id="inv-alertas-count" hidden></span></h2>
+          <button type="button" class="btn btn-quiet btn-sm" id="inv-alertas-leer" onclick="leerAlerta()" hidden>Marcar todas como leídas</button>
+        </div>
+        <ul class="list" id="inv-alertas"></ul>
+      </section>
 
       <!-- RF14: solicitudes de devolución enviadas por los clientes desde "Mis compras" -->
       <section class="panel" id="inv-solicitudes-panel" style="margin-bottom:26px">
@@ -1028,8 +1061,8 @@ async function vistaInventario(root) {
 
       <div class="table-wrap" style="margin-bottom:26px">
         <table class="table">
-          <thead><tr><th>Libro</th><th>ISBN</th><th class="right">En stock</th><th class="right">Vendidos</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
-          <tbody id="inv-tbody"><tr><td colspan="6"><p class="list-empty">Cargando inventario…</p></td></tr></tbody>
+          <thead><tr><th>Libro</th><th>ISBN</th><th class="right">En stock</th><th class="right">Mínimo</th><th class="right">Vendidos</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+          <tbody id="inv-tbody"><tr><td colspan="7"><p class="list-empty">Cargando inventario…</p></td></tr></tbody>
         </table>
         <div class="table-foot" id="inv-foot"></div>
       </div>
@@ -1067,6 +1100,7 @@ async function refrescarInventario(avisar = false) {
     pintarResumenInventario();
     pintarTablaInventario();
     pintarSolicitudes();
+    pintarAlertas();   // RF10
     pintarVentas();
     pintarMovimientos();
     actualizarConteoRail();
@@ -1083,13 +1117,13 @@ async function refrescarInventario(avisar = false) {
 function pintarResumenInventario() {
   const unidades = inv.libros.reduce((s, l) => s + l.stock, 0);
   const agotados = inv.libros.filter(l => l.stock === 0).length;
-  const bajos = inv.libros.filter(l => l.stock > 0 && l.stock <= STOCK_BAJO).length;
+  const bajos = inv.libros.filter(esBajo).length;   // RF11: según el mínimo de cada libro
   const vendidas = inv.libros.reduce((s, l) => s + l.vendidos, 0);
   document.getElementById('inv-resumen').innerHTML = `
     <div><b>${unidades}</b><span>Unidades en stock</span></div>
     <div><b>${inv.libros.length}</b><span>Títulos</span></div>
     <div class="${agotados ? 'warn' : ''}"><b>${agotados}</b><span>Agotados</span></div>
-    <div class="${bajos ? 'warn' : ''}"><b>${bajos}</b><span>Stock bajo (≤ ${STOCK_BAJO})</span></div>
+    <div class="${bajos ? 'warn' : ''}"><b>${bajos}</b><span>Stock bajo (≤ su mínimo)</span></div>
     <div><b>${vendidas}</b><span>Unidades vendidas</span></div>`;
 }
 
@@ -1102,22 +1136,28 @@ function pintarTablaInventario() {
     filas.length === inv.libros.length ? `${filas.length} títulos` : `${filas.length} de ${inv.libros.length} títulos`;
 
   if (!filas.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty" style="padding:28px"><p>${inv.libros.length ? 'Ningún libro coincide con ese título o ISBN.' : 'Aún no hay libros en el inventario.'}</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty" style="padding:28px"><p>${inv.libros.length ? 'Ningún libro coincide con ese título o ISBN.' : 'Aún no hay libros en el inventario.'}</p></div></td></tr>`;
     return;
   }
 
   tbody.innerHTML = filas.map(l => {
     const antes = inv.anterior.get(l.id_libro);
     const cambio = antes !== undefined && antes !== l.stock;   // ¿cambió desde la última consulta?
-    const nivel = l.stock === 0 ? 'stock-cero' : (l.stock <= STOCK_BAJO ? 'stock-bajo' : '');
+    const nivel = l.stock === 0 ? 'stock-cero' : (esBajo(l) ? 'stock-bajo' : '');
     return `
       <tr>
         <td><div class="title-cell"><img src="${portada(l)}" alt="" loading="lazy" onerror="this.src=window.PORTADA_DEFECTO" /><div><b>${esc(l.titulo)}</b><span>${esc(l.autor)}</span></div></div></td>
         <td class="mono">${esc(l.ISBN || '—')}</td>
         <td class="right"><span class="stock-num ${nivel} ${cambio ? 'cambio' : ''}" title="${cambio ? `Antes: ${antes}` : ''}">${l.stock}</span></td>
+        <td class="right">
+          <!-- RF11: mínimo del libro; "por defecto" si no tiene uno propio -->
+          <span class="num" title="${l.minimo_propio == null ? 'Usa el mínimo por defecto' : 'Mínimo propio de este libro'}">${l.stock_minimo}</span>
+          ${l.minimo_propio == null ? '<span class="field-hint">def.</span>' : ''}
+        </td>
         <td class="right">${l.vendidos}</td>
-        <td><span class="status ${l.stock === 0 ? 'status-out' : (l.stock <= STOCK_BAJO ? 'status-bajo' : 'status-ok')}">${l.stock > 0 ? (l.stock <= STOCK_BAJO ? 'Stock bajo' : 'Disponible') : 'Agotado'}</span></td>
+        <td><span class="status ${l.stock === 0 ? 'status-out' : (esBajo(l) ? 'status-bajo' : 'status-ok')}">${l.stock > 0 ? (esBajo(l) ? 'Stock bajo' : 'Disponible') : 'Agotado'}</span></td>
         <td><div class="row-actions">
+          <button type="button" class="icon-btn" data-requiere="inventario:editar" onclick="editarMinimo(${l.id_libro})" aria-label="Stock mínimo de ${esc(l.titulo)}" title="Stock mínimo"><i class="fas fa-sliders"></i></button>
           <a class="icon-btn" href="admin.html#libros/${l.id_libro}" data-requiere="libros:editar" aria-label="Ajustar stock de ${esc(l.titulo)}" title="Ajustar stock"><i class="fas fa-pen"></i></a>
         </div></td>
       </tr>`;
@@ -1947,3 +1987,640 @@ window.cambiarEstadoPedido = function(idPedido) {
   });
   dlg.showModal();
 };
+
+
+/* ---------------------------------------------------------------
+   AVISOS DE STOCK BAJO (RF10) Y STOCK MÍNIMO POR LIBRO (RF11)
+   Cómo funciona:
+   1. El servidor, cada vez que mueve el stock (venta, ajuste…), compara con el mínimo
+      del libro. Si lo cruza hacia abajo, guarda una fila en `notificaciones`.
+   2. El panel trae esos avisos junto con el inventario (cada 10 s) y los pinta arriba.
+   3. Si aparece uno nuevo mientras miras, sale además un aviso flotante.
+   4. El contador rojo del riel ("Inventario") muestra cuántos faltan por leer.
+   --------------------------------------------------------------- */
+
+/** RF10 · Trae los avisos al abrir el panel (para el contador del riel). */
+async function cargarAlertas() {
+  if (!window.puede('inventario')) return;
+  try {
+    const res = await window.fetchAPI('/api/inventario/notificaciones?limite=30');
+    if (!res.ok) return;
+    const d = await res.json();
+    inv.notificaciones = d.notificaciones;
+    inv.sinLeer = d.sinLeer;
+  } catch {
+    // sin conexión: el contador queda en 0
+  }
+}
+
+/** RF10 · Lista de avisos dentro de Inventario (los no leídos van resaltados). */
+function pintarAlertas() {
+  const lista = document.getElementById('inv-alertas');
+  if (!lista) return;
+  const contador = document.getElementById('inv-alertas-count');
+  contador.hidden = !inv.sinLeer;
+  contador.textContent = `${inv.sinLeer} sin leer`;
+  document.getElementById('inv-alertas-leer').hidden = !inv.sinLeer;
+  document.getElementById('inv-min-defecto').textContent = inv.minimoDefecto;
+
+  const visibles = inv.notificaciones.slice(0, 8);
+  lista.innerHTML = visibles.length ? visibles.map(n => `
+    <li class="${n.leida ? '' : 'alerta-nueva'}">
+      <i class="fas ${n.stock_actual === 0 ? 'fa-circle-exclamation' : 'fa-triangle-exclamation'} alerta-icono" aria-hidden="true"></i>
+      <div class="grow">
+        <b>${esc(n.mensaje)}</b>
+        <span>${fechaHora(n.fecha)} · ahora hay ${n.stock_actual} unidad(es)${n.leida ? '' : ' · <strong>Nuevo</strong>'}</span>
+      </div>
+      ${n.id_libro ? `<a class="btn btn-secondary btn-sm" data-requiere="libros:editar" href="admin.html#libros/${n.id_libro}">Reponer stock</a>` : ''}
+      ${n.leida ? '' : `<button type="button" class="btn btn-quiet btn-sm" onclick="leerAlerta(${n.id_notificacion})">Marcar leída</button>`}
+    </li>`).join('') : '<li class="list-empty">Sin avisos. Cuando un libro llegue a su stock mínimo aparecerá aquí.</li>';
+  aplicarPermisos(lista);
+}
+
+/** RF10 · Marca un aviso (o todos, sin id) como leído. */
+window.leerAlerta = async function(id = null) {
+  try {
+    const res = await window.fetchAPI('/api/inventario/notificaciones/leer', {
+      method: 'PUT', body: JSON.stringify(id ? { id } : {})
+    });
+    if (!res.ok) throw await leerError(res, 'No se pudo marcar el aviso');
+    await refrescarInventario();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/**
+ * RF11 · Diálogo para escribir un mínimo. Devuelve el número, `null` si eligió
+ * "usar el de por defecto", o `undefined` si canceló.
+ */
+function pedirMinimo({ titulo, texto, valor, permitirDefecto }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm';
+    dlg.innerHTML = `
+      <form class="ficha" method="dialog" novalidate>
+        <div class="ficha-head"><h2>${esc(titulo)}</h2><p>${texto}</p></div>
+        <div class="ficha-body">
+          <label class="field"><span class="field-label">Stock mínimo (unidades)</span>
+            <input class="input num" name="minimo" type="number" min="0" max="9999" step="1" value="${valor ?? ''}" required /></label>
+          ${permitirDefecto ? `<label class="check" style="margin-top:10px"><input type="checkbox" name="defecto" ${valor == null ? 'checked' : ''} />
+            <span>Usar el mínimo por defecto (${inv.minimoDefecto})</span></label>` : ''}
+          <p class="field-error" data-error hidden></p>
+          <div class="confirm-actions">
+            <button type="button" class="btn btn-secondary" data-cancelar>Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar</button>
+          </div>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const form = dlg.querySelector('form');
+    const cerrar = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    const casilla = form.defecto;
+    if (casilla) {
+      const sync = () => { form.minimo.disabled = casilla.checked; };
+      casilla.addEventListener('change', sync);
+      sync();
+    }
+    dlg.querySelector('[data-cancelar]').addEventListener('click', () => cerrar(undefined));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); cerrar(undefined); });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (casilla?.checked) return cerrar(null);
+      const n = Number(form.minimo.value);
+      if (form.minimo.value === '' || !Number.isInteger(n) || n < 0 || n > 9999) {
+        const err = form.querySelector('[data-error]');
+        err.textContent = 'Escribe un número entero entre 0 y 9999.';
+        err.hidden = false;
+        form.minimo.focus();
+        return;
+      }
+      cerrar(n);
+    });
+    dlg.showModal();
+    form.minimo.focus();
+  });
+}
+
+/** RF11 · Cambiar el mínimo de UN libro (desde la tabla del inventario). */
+window.editarMinimo = async function(idLibro) {
+  const l = inv.libros.find(x => x.id_libro === idLibro);
+  if (!l) return;
+  const minimo = await pedirMinimo({
+    titulo: `Stock mínimo · ${l.titulo}`,
+    texto: `Hay <b>${l.stock}</b> en stock. Cuando llegue a este número o menos, el panel avisará.`,
+    valor: l.minimo_propio, permitirDefecto: true
+  });
+  if (minimo === undefined) return;
+  try {
+    const res = await window.fetchAPI(`/api/inventario/minimo/${idLibro}`, { method: 'PUT', body: JSON.stringify({ minimo }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo guardar el mínimo');
+    window.showToast(data.message);
+    await refrescarInventario();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/** RF11 · Cambiar el mínimo por defecto (para todos los libros sin mínimo propio). */
+window.editarMinimoDefecto = async function() {
+  const minimo = await pedirMinimo({
+    titulo: 'Mínimo por defecto',
+    texto: 'Se usa en todos los libros que no tienen un mínimo propio.',
+    valor: inv.minimoDefecto, permitirDefecto: false
+  });
+  if (minimo === undefined) return;
+  try {
+    const res = await window.fetchAPI('/api/inventario/minimo-defecto', { method: 'PUT', body: JSON.stringify({ minimo }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo guardar el mínimo');
+    window.showToast(data.message);
+    await refrescarInventario();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+/* ---------------------------------------------------------------
+   TABLERO DE INDICADORES EN TIEMPO REAL (RF19) · solo administrador
+   Va arriba del Resumen. Se pide /api/reportes/kpis al entrar y luego cada minuto
+   (solo si la pestaña está visible). Al salir del Resumen, detenerKpis() lo apaga.
+   --------------------------------------------------------------- */
+
+const KPIS_CADA_MS = 60000;
+const kpi = { timer: null };
+
+function detenerKpis() {
+  if (kpi.timer) clearInterval(kpi.timer);
+  kpi.timer = null;
+}
+
+async function iniciarKpis() {
+  detenerKpis();
+  await pintarKpis();
+  kpi.timer = setInterval(() => {
+    if (document.visibilityState === 'visible') pintarKpis();
+  }, KPIS_CADA_MS);
+}
+
+async function pintarKpis() {
+  const caja = document.getElementById('kpis');
+  if (!caja) return;
+  try {
+    const res = await window.fetchAPI('/api/reportes/kpis');
+    if (!res.ok) throw await leerError(res, 'No se pudieron cargar los indicadores');
+    const k = await res.json();
+    if (!document.getElementById('kpis')) return;   // saliste mientras cargaba
+    const hora = new Date(k.actualizado).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    const dif = k.ventasHoy.total - k.ventasHoy.ayer;
+    const comparacion = k.ventasHoy.ayer
+      ? `${dif >= 0 ? '▲' : '▼'} ${window.formatPrecio(Math.abs(dif))} frente a ayer`
+      : 'Ayer no hubo ventas';
+    const maxUnid = Math.max(1, ...k.masVendidos.map(x => x.unidades));
+
+    caja.innerHTML = `
+      <div class="panel-head">
+        <h2>Tablero en vivo</h2>
+        <p class="field-hint"><span class="en-vivo" aria-hidden="true"></span> Actualizado a las ${hora} · se refresca cada minuto
+          <button type="button" class="link" onclick="pintarKpis()">Actualizar</button></p>
+      </div>
+      <div class="kpis">
+        <div class="kpi">
+          <span class="kpi-label">Ventas de hoy</span>
+          <b class="kpi-valor">${window.formatPrecio(k.ventasHoy.total)}</b>
+          <span class="kpi-pie">${k.ventasHoy.pedidos} pedido(s) · ${comparacion}</span>
+        </div>
+        <a class="kpi ${k.pendientes.total ? 'kpi-atencion' : ''}" href="admin.html#inventario">
+          <span class="kpi-label">Pedidos por despachar</span>
+          <b class="kpi-valor">${k.pendientes.total}</b>
+          <span class="kpi-pie">Pendientes o pagados, sin enviar</span>
+        </a>
+        <a class="kpi ${k.tickets.total ? 'kpi-atencion' : ''}" href="admin.html#${k.tickets.devoluciones ? 'inventario' : 'facturas'}">
+          <span class="kpi-label">Tickets abiertos</span>
+          <b class="kpi-valor">${k.tickets.total}</b>
+          <span class="kpi-pie">${k.tickets.devoluciones} devolución(es) · ${k.tickets.facturasRechazadas} factura(s) rechazada(s)</span>
+        </a>
+        <a class="kpi ${k.stockBajo ? 'kpi-atencion' : ''}" href="admin.html#inventario">
+          <span class="kpi-label">Libros con stock bajo</span>
+          <b class="kpi-valor">${k.stockBajo}</b>
+          <span class="kpi-pie">${k.notificacionesSinLeer} aviso(s) sin leer</span>
+        </a>
+      </div>
+      <div class="admin-cols kpis-listas">
+        <div>
+          <h3 class="field-label">Más vendidos · últimos 30 días</h3>
+          ${k.masVendidos.length ? `<ol class="barras">${k.masVendidos.map(x => `
+            <li title="${esc(x.titulo)}: ${x.unidades} unidad(es)">
+              <span class="barras-nombre">${esc(x.titulo)}</span>
+              <span class="barras-pista"><span style="width:${(x.unidades / maxUnid) * 100}%"></span></span>
+              <span class="num">${x.unidades}</span>
+            </li>`).join('')}</ol>` : '<p class="list-empty">Sin ventas en los últimos 30 días.</p>'}
+        </div>
+        <div>
+          <h3 class="field-label">Pedidos esperando despacho</h3>
+          ${k.pendientes.lista.length ? `<ul class="list list-compacta">${k.pendientes.lista.map(p => `
+            <li><div class="grow"><b>${window.numeroRegistro(p.id_pedido)} · ${esc(p.cliente || 'Cliente')}</b><span>${fechaHora(p.fecha_registro)}</span></div>
+              <span class="status ${p.estado_envio === 'Pagado' ? 'status-bajo' : 'status-admin'}">${esc(p.estado_envio)}</span></li>`).join('')}</ul>`
+            : '<p class="list-empty">Todo despachado.</p>'}
+        </div>
+      </div>`;
+  } catch (e) {
+    caja.innerHTML = `<p class="list-empty">${esc(e.message)} · se reintentará en un minuto.</p>`;
+  }
+}
+window.pintarKpis = pintarKpis;
+
+/* ---------------------------------------------------------------
+   REPORTES (RF8, RF6, RF20)
+   Tres pestañas; cada una se ve solo si el rol tiene el permiso:
+     Movimientos de stock   -> inventario:ver  (RF8)
+     Por usuario            -> facturas:ver    (RF6)
+     Estadísticas           -> reportes:editar (RF20)
+   Exportar:
+     Excel -> se arma un CSV (separado por ";" y con BOM para que Excel lea las tildes)
+     PDF   -> window.print(); el CSS de impresión deja solo el reporte (Guardar como PDF)
+   --------------------------------------------------------------- */
+
+const rep = {
+  pestana: null,
+  filtros: { desde: '', hasta: '', libro: '', usuario: '', agrupar: 'dia' },
+  datos: null,
+  grafica: null
+};
+
+const PESTANAS_REPORTE = [
+  { id: 'movimientos', nombre: 'Movimientos de stock', permiso: ['inventario', 'ver'], icono: 'fa-right-left' },
+  { id: 'usuario', nombre: 'Por usuario', permiso: ['facturas', 'ver'], icono: 'fa-user' },
+  { id: 'estadisticas', nombre: 'Estadísticas', permiso: ['reportes', 'editar'], icono: 'fa-chart-column' }
+];
+
+/** Fecha local en AAAA-MM-DD. */
+const isoDia = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function vistaReportes(root, param) {
+  const permitidas = PESTANAS_REPORTE.filter(p => window.puede(...p.permiso));
+  if (!permitidas.length) { root.innerHTML = accesoDenegado('reportes'); return; }
+  rep.pestana = permitidas.find(p => p.id === param) || permitidas[0];
+  if (!rep.filtros.desde) {   // por defecto: este mes
+    const hoy = new Date();
+    rep.filtros.desde = isoDia(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+    rep.filtros.hasta = isoDia(hoy);
+  }
+  const f = rep.filtros;
+  const id = rep.pestana.id;
+
+  root.innerHTML = `
+    <section class="admin-section reporte">
+      <header class="page-head">
+        <div><h1>Reportes</h1><p>${{ movimientos: 'Entradas, ventas y devoluciones de cada libro.', usuario: 'Compras, devoluciones y notas de un cliente.', estadisticas: 'Ventas, ingresos e inventario en un periodo.' }[id]}</p></div>
+        <div class="actions no-imprimir">
+          <button type="button" class="btn btn-secondary" id="rep-excel"><i class="fas fa-file-excel" aria-hidden="true"></i> Excel</button>
+          <button type="button" class="btn btn-secondary" id="rep-pdf"><i class="fas fa-file-pdf" aria-hidden="true"></i> PDF</button>
+        </div>
+      </header>
+
+      <nav class="tabs-reporte no-imprimir" aria-label="Tipo de reporte">
+        ${permitidas.map(p => `<a href="admin.html#reportes/${p.id}" ${p.id === id ? 'aria-current="page"' : ''}><i class="fas ${p.icono}" aria-hidden="true"></i> ${p.nombre}</a>`).join('')}
+      </nav>
+
+      <form class="panel filtros-facturas filtros-reporte no-imprimir" id="form-reporte" novalidate>
+        ${id === 'usuario' ? `<label class="field"><span class="field-label">Usuario</span>
+          <select class="select" name="usuario" required><option value="">Cargando…</option></select></label>` : ''}
+        ${id === 'movimientos' ? `<label class="field"><span class="field-label">Libro</span>
+          <select class="select" name="libro"><option value="">Todos los libros</option></select></label>` : ''}
+        ${id === 'estadisticas' ? `<label class="field"><span class="field-label">Agrupar por</span>
+          <select class="select" name="agrupar"><option value="dia" ${f.agrupar === 'dia' ? 'selected' : ''}>Día</option><option value="mes" ${f.agrupar === 'mes' ? 'selected' : ''}>Mes</option></select></label>` : ''}
+        <label class="field"><span class="field-label">Desde</span><input class="input" type="date" name="desde" value="${esc(f.desde)}" /></label>
+        <label class="field"><span class="field-label">Hasta</span><input class="input" type="date" name="hasta" value="${esc(f.hasta)}" /></label>
+        <div class="filtros-acciones"><button type="submit" class="btn btn-primary"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> Generar</button></div>
+        <div class="atajos-fecha">
+          <span class="field-hint">Rápido:</span>
+          <button type="button" class="link" data-rango="hoy">Hoy</button>
+          <button type="button" class="link" data-rango="7">Últimos 7 días</button>
+          <button type="button" class="link" data-rango="mes">Este mes</button>
+          <button type="button" class="link" data-rango="anio">Este año</button>
+          <button type="button" class="link" data-rango="todo">Todo</button>
+        </div>
+      </form>
+
+      <p class="reporte-titulo-impreso">Librería Andrés · ${esc(rep.pestana.nombre)} · <span id="rep-rango"></span></p>
+      <div id="rep-cuerpo"><p class="list-empty">Generando reporte…</p></div>
+    </section>`;
+
+  const form = document.getElementById('form-reporte');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (form.desde.value && form.hasta.value && form.desde.value > form.hasta.value) {
+      window.showToast('La fecha "desde" no puede ser posterior a "hasta".', 'error');
+      return;
+    }
+    f.desde = form.desde.value;
+    f.hasta = form.hasta.value;
+    if (form.libro) f.libro = form.libro.value;
+    if (form.usuario) f.usuario = form.usuario.value;
+    if (form.agrupar) f.agrupar = form.agrupar.value;
+    generarReporte();
+  });
+  form.querySelectorAll('[data-rango]').forEach(btn => btn.addEventListener('click', () => {
+    const hoy = new Date();
+    let desde = new Date(hoy);
+    const r = btn.dataset.rango;
+    if (r === '7') desde.setDate(hoy.getDate() - 6);
+    if (r === 'mes') desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    if (r === 'anio') desde = new Date(hoy.getFullYear(), 0, 1);
+    form.desde.value = r === 'todo' ? '' : isoDia(desde);
+    form.hasta.value = r === 'todo' ? '' : isoDia(hoy);
+    form.requestSubmit();
+  }));
+  form.querySelector('select[name="libro"], select[name="usuario"]')?.addEventListener('change', () => form.requestSubmit());
+  document.getElementById('rep-excel').addEventListener('click', exportarExcel);
+  document.getElementById('rep-pdf').addEventListener('click', () => window.print());
+
+  if (id === 'usuario') cargarSelectorUsuarios(form);
+  else generarReporte();
+}
+
+/** RF6 · Llena el selector de usuarios y, si ya había uno elegido, genera el reporte. */
+async function cargarSelectorUsuarios(form) {
+  const sel = form.usuario;
+  try {
+    const res = await window.fetchAPI('/api/reportes/usuarios');
+    if (!res.ok) throw await leerError(res, 'No se pudieron cargar los usuarios');
+    const usuarios = await res.json();
+    sel.innerHTML = '<option value="">Elige un usuario…</option>' + usuarios.map(u =>
+      `<option value="${u.id}" ${String(u.id) === String(rep.filtros.usuario) ? 'selected' : ''}>${esc(u.nombre)} · ${esc(u.email)} (${u.pedidos} pedido${u.pedidos === 1 ? '' : 's'})</option>`).join('');
+    if (rep.filtros.usuario) generarReporte();
+    else document.getElementById('rep-cuerpo').innerHTML = '<div class="panel"><div class="empty"><i class="fas fa-user" aria-hidden="true"></i><p>Elige un usuario para ver sus compras, devoluciones y notas.</p></div></div>';
+  } catch (e) {
+    document.getElementById('rep-cuerpo').innerHTML = `<p class="list-empty">${esc(e.message)}</p>`;
+  }
+}
+
+/** Arma la URL según la pestaña y los filtros, la pide y pinta el resultado. */
+async function generarReporte() {
+  const f = rep.filtros;
+  const id = rep.pestana.id;
+  const cuerpo = document.getElementById('rep-cuerpo');
+  const q = new URLSearchParams();
+  if (f.desde) q.set('desde', f.desde);
+  if (f.hasta) q.set('hasta', f.hasta);
+  let url;
+  if (id === 'movimientos') { if (f.libro) q.set('libro', f.libro); url = `/api/reportes/movimientos?${q}`; }
+  if (id === 'usuario') url = `/api/reportes/usuario/${f.usuario}?${q}`;
+  if (id === 'estadisticas') { q.set('agrupar', f.agrupar); url = `/api/reportes/estadisticas?${q}`; }
+
+  document.getElementById('rep-rango').textContent =
+    f.desde || f.hasta ? `${f.desde ? fecha(`${f.desde}T00:00`) : 'el inicio'} a ${f.hasta ? fecha(`${f.hasta}T00:00`) : 'hoy'}` : 'todo el historial';
+  cuerpo.innerHTML = '<p class="list-empty">Generando reporte…</p>';
+  try {
+    const res = await window.fetchAPI(url);
+    if (!res.ok) throw await leerError(res, 'No se pudo generar el reporte');
+    rep.datos = await res.json();
+    if (!document.getElementById('rep-cuerpo')) return;
+    if (id === 'movimientos') pintarReporteMovimientos();
+    if (id === 'usuario') pintarReporteUsuario();
+    if (id === 'estadisticas') await pintarEstadisticas();
+  } catch (e) {
+    cuerpo.innerHTML = `<div class="panel"><div class="empty"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i><p>${esc(e.message)}</p></div></div>`;
+  }
+}
+
+/** RF8 · Resumen por libro + detalle de cada movimiento. */
+function pintarReporteMovimientos() {
+  const d = rep.datos;
+  const sel = document.querySelector('#form-reporte select[name="libro"]');
+  if (sel && sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">Todos los libros</option>' + d.libros.map(l =>
+      `<option value="${l.id_libro}" ${String(l.id_libro) === String(rep.filtros.libro) ? 'selected' : ''}>${esc(l.titulo)}</option>`).join('');
+  }
+  const t = d.totales;
+  const tipoClase = { Venta: 'status-admin', 'Devolución': 'status-ok', Alta: 'status-ok', Ajuste: 'status-bajo' };
+  document.getElementById('rep-cuerpo').innerHTML = `
+    <div class="summary-strip">
+      <div><b>${t.entradas}</b><span>Entradas (altas y ajustes +)</span></div>
+      <div><b>${t.ventas}</b><span>Unidades vendidas</span></div>
+      <div><b>${t.devoluciones}</b><span>Unidades devueltas al stock</span></div>
+      <div><b>${t.salidas_ajuste}</b><span>Salidas por ajuste</span></div>
+    </div>
+    <h2 class="reporte-sub">Por libro</h2>
+    <div class="table-wrap" style="margin-bottom:26px">
+      <table class="table" id="tabla-rep-principal">
+        <thead><tr><th>Libro</th><th class="right">Entradas</th><th class="right">Ventas</th><th class="right">Devoluciones</th><th class="right">Salidas ajuste</th><th class="right">Stock actual</th></tr></thead>
+        <tbody>${d.resumen.length ? d.resumen.map(r => `
+          <tr><td><b>${esc(r.titulo)}</b><div class="field-hint">${esc(r.autor || '')}</div></td>
+            <td class="right num">${r.entradas}</td><td class="right num">${r.ventas}</td><td class="right num">${r.devoluciones}</td>
+            <td class="right num">${r.salidas_ajuste}</td><td class="right num">${r.stock_actual}</td></tr>`).join('')
+          : '<tr><td colspan="6"><p class="list-empty">No hubo movimientos en ese rango.</p></td></tr>'}</tbody>
+      </table>
+    </div>
+    <h2 class="reporte-sub">Detalle (${d.detalle.length}${d.detalle.length === 1000 ? ', primeros 1000' : ''})</h2>
+    <div class="table-wrap">
+      <table class="table" id="tabla-rep-detalle">
+        <thead><tr><th>Fecha</th><th>Libro</th><th>Tipo</th><th class="right">Cantidad</th><th class="right">Stock</th><th>Pedido</th><th>Usuario</th></tr></thead>
+        <tbody>${d.detalle.length ? d.detalle.map(m => `
+          <tr><td class="mono">${fechaHora(m.fecha_movimiento)}</td><td>${esc(m.titulo)}</td>
+            <td><span class="status ${tipoClase[m.tipo_movimiento] || ''}">${esc(m.tipo_movimiento)}</span></td>
+            <td class="right num">${m.stock_nuevo >= m.stock_anterior ? '+' : '−'}${m.cantidad}</td>
+            <td class="right num">${m.stock_anterior} → ${m.stock_nuevo}</td>
+            <td class="mono">${m.id_pedido ? window.numeroRegistro(m.id_pedido) : '—'}</td><td>${esc(m.usuario_nombre || '—')}</td></tr>`).join('')
+          : '<tr><td colspan="7"><p class="list-empty">Sin movimientos.</p></td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+/** RF6 · Transacciones de un usuario. */
+function pintarReporteUsuario() {
+  const d = rep.datos;
+  const t = d.totales;
+  const u = d.usuario;
+  document.getElementById('rep-cuerpo').innerHTML = `
+    <div class="panel reporte-usuario">
+      <div><b>${esc(u.nombre)}</b><span>${esc(u.email)}${u.cedula ? ` · C.C. ${esc(u.cedula)}` : ''} · rol ${esc(u.rol)} · cliente desde ${fecha(u.fecha_registro)}</span></div>
+    </div>
+    <div class="summary-strip">
+      <div><b>${t.compras}</b><span>Compras</span></div>
+      <div><b>${window.formatPrecio(t.comprado)}</b><span>Total comprado</span></div>
+      <div class="${t.devoluciones ? 'warn' : ''}"><b>${t.devoluciones}</b><span>Solicitudes de devolución</span></div>
+      <div><b>${window.formatPrecio(t.devuelto)}</b><span>Devuelto en notas crédito</span></div>
+      <div><b>${window.formatPrecio(t.neto)}</b><span>Neto</span></div>
+    </div>
+    <h2 class="reporte-sub">Compras</h2>
+    <div class="table-wrap" style="margin-bottom:26px">
+      <table class="table" id="tabla-rep-principal">
+        <thead><tr><th>Pedido</th><th>Fecha</th><th>Libros</th><th class="right">Unid.</th><th class="right">Total</th><th>Estado</th><th>Factura</th></tr></thead>
+        <tbody>${d.compras.length ? d.compras.map(c => `
+          <tr><td class="mono">${window.numeroRegistro(c.id_pedido)}</td><td class="mono">${fechaHora(c.fecha_registro)}</td>
+            <td>${esc(c.libros || '—')}</td><td class="right num">${c.unidades}</td><td class="right num">${window.formatPrecio(c.total)}</td>
+            <td><span class="status ${c.estado === 'Devuelto' ? 'status-out' : 'status-ok'}">${esc(c.estado === 'Devuelto' ? 'Devuelto' : (c.estado_envio || c.estado))}</span></td>
+            <td>${c.id_factura ? `<a class="link" href="factura.html?id=${c.id_factura}" target="_blank" rel="noopener">${esc(c.numero_fe || 'Ver')}</a>` : '—'}</td></tr>`).join('')
+          : '<tr><td colspan="7"><p class="list-empty">Sin compras en ese rango.</p></td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="admin-cols">
+      <section>
+        <h2 class="reporte-sub">Devoluciones</h2>
+        <div class="table-wrap">
+          <table class="table" id="tabla-rep-devoluciones">
+            <thead><tr><th>Pedido</th><th>Fecha</th><th>Motivo</th><th>Estado</th></tr></thead>
+            <tbody>${d.devoluciones.length ? d.devoluciones.map(s => `
+              <tr><td class="mono">${window.numeroRegistro(s.id_pedido)}</td><td class="mono">${fechaHora(s.fecha_solicitud)}</td>
+                <td>${esc(s.motivo)}${s.estado_libro ? `<div class="field-hint">Libro: ${esc(s.estado_libro)}</div>` : ''}</td>
+                <td><span class="status ${s.estado === 'Aprobada' ? 'status-ok' : (s.estado === 'Rechazada' ? 'status-out' : 'status-bajo')}">${esc(s.estado)}</span></td></tr>`).join('')
+              : '<tr><td colspan="4"><p class="list-empty">Sin devoluciones.</p></td></tr>'}</tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2 class="reporte-sub">Notas crédito / débito</h2>
+        <div class="table-wrap">
+          <table class="table" id="tabla-rep-notas">
+            <thead><tr><th>Nota</th><th>Fecha</th><th>Pedido</th><th class="right">Total</th></tr></thead>
+            <tbody>${d.notas.length ? d.notas.map(n => `
+              <tr><td><a class="link" href="nota.html?id=${n.id_nota}" target="_blank" rel="noopener">${esc(n.tipo)} ${window.numeroRegistro(n.id_nota)}</a></td>
+                <td class="mono">${fechaHora(n.fecha_registro)}</td><td class="mono">${window.numeroRegistro(n.id_pedido)}</td>
+                <td class="right num">${window.formatPrecio(n.total)}</td></tr>`).join('')
+              : '<tr><td colspan="4"><p class="list-empty">Sin notas.</p></td></tr>'}</tbody>
+          </table>
+        </div>
+      </section>
+    </div>`;
+}
+
+/** Carga Chart.js (cdnjs) solo la primera vez que se necesita. */
+let chartJsPromesa = null;
+function cargarChartJs() {
+  if (window.Chart) return Promise.resolve();
+  chartJsPromesa ??= new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+    sc.onload = resolve;
+    sc.onerror = () => { chartJsPromesa = null; reject(new Error('No se pudo cargar la librería de gráficas')); };
+    document.head.appendChild(sc);
+  });
+  return chartJsPromesa;
+}
+
+/** RF20 · Estadísticas: ingresos, ventas por periodo (gráfica + tabla), más vendidos e inventario. */
+async function pintarEstadisticas() {
+  const d = rep.datos;
+  const ing = d.ingresos;
+  const inv20 = d.inventario;
+  const totalLibros = inv20.normal + inv20.bajo + inv20.agotado || 1;
+  const maxUnid = Math.max(1, ...d.masVendidos.map(x => x.unidades));
+  const etiquetaPeriodo = (p) => rep.filtros.agrupar === 'mes'
+    ? new Date(`${p}-01T00:00`).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' })
+    : new Date(`${p}T00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+
+  document.getElementById('rep-cuerpo').innerHTML = `
+    <div class="summary-strip">
+      <div><b>${window.formatPrecio(ing.total)}</b><span>Facturado (${ing.facturas} factura${ing.facturas === 1 ? '' : 's'})</span></div>
+      <div><b>${window.formatPrecio(ing.credito)}</b><span>Notas crédito (devoluciones)</span></div>
+      <div><b>${window.formatPrecio(ing.neto)}</b><span>Ingreso neto</span></div>
+      <div><b>${window.formatPrecio(ing.envios)}</b><span>Cobrado en envíos</span></div>
+      <div><b>${d.porPeriodo.reduce((s, p) => s + p.pedidos, 0)}</b><span>Pedidos vendidos</span></div>
+    </div>
+
+    <section class="panel" style="margin-bottom:26px">
+      <div class="panel-head"><h2>Ingresos por ${rep.filtros.agrupar === 'mes' ? 'mes' : 'día'}</h2></div>
+      ${d.porPeriodo.length ? `<div class="grafica"><canvas id="grafica-ventas" role="img" aria-label="Ingresos por periodo; los valores están en la tabla de abajo"></canvas></div>` : '<p class="list-empty">No hubo ventas en ese rango.</p>'}
+      <div class="table-wrap" style="margin-top:14px">
+        <table class="table" id="tabla-rep-principal">
+          <thead><tr><th>Periodo</th><th class="right">Pedidos</th><th class="right">Ingresos</th></tr></thead>
+          <tbody>${d.porPeriodo.map(p => `<tr><td>${etiquetaPeriodo(p.periodo)}</td><td class="right num">${p.pedidos}</td><td class="right num">${window.formatPrecio(p.ingresos)}</td></tr>`).join('')
+            || '<tr><td colspan="3"><p class="list-empty">Sin datos.</p></td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="admin-cols">
+      <section class="panel">
+        <div class="panel-head"><h2>Libros más vendidos</h2></div>
+        ${d.masVendidos.length ? `<ol class="barras" id="tabla-rep-top">${d.masVendidos.map(x => `
+          <li title="${esc(x.titulo)}: ${x.unidades} unidad(es) · ${window.formatPrecio(x.ingresos)}">
+            <span class="barras-nombre">${esc(x.titulo)}</span>
+            <span class="barras-pista"><span style="width:${(x.unidades / maxUnid) * 100}%"></span></span>
+            <span class="num">${x.unidades}</span>
+          </li>`).join('')}</ol>` : '<p class="list-empty">Sin ventas en ese rango.</p>'}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Estado del inventario (hoy)</h2></div>
+        <div class="barra-estado" role="img" aria-label="${inv20.normal} normales, ${inv20.bajo} con stock bajo, ${inv20.agotado} agotados">
+          <span class="seg-ok" style="flex:${inv20.normal}"></span><span class="seg-bajo" style="flex:${inv20.bajo}"></span><span class="seg-out" style="flex:${inv20.agotado}"></span>
+        </div>
+        <ul class="list list-compacta">
+          <li><span class="status status-ok">Normal</span><div class="grow"></div><b class="num">${inv20.normal}</b><span class="field-hint">${Math.round(inv20.normal / totalLibros * 100)}%</span></li>
+          <li><span class="status status-bajo">Stock bajo</span><div class="grow"></div><b class="num">${inv20.bajo}</b><span class="field-hint">${Math.round(inv20.bajo / totalLibros * 100)}%</span></li>
+          <li><span class="status status-out">Agotado</span><div class="grow"></div><b class="num">${inv20.agotado}</b><span class="field-hint">${Math.round(inv20.agotado / totalLibros * 100)}%</span></li>
+          <li><div class="grow"><b>${inv20.unidades} unidades en bodega</b><span>Valor a precio de venta: ${window.formatPrecio(inv20.valor)}</span></div></li>
+        </ul>
+      </section>
+    </div>`;
+
+  if (!d.porPeriodo.length) return;
+  try {
+    await cargarChartJs();
+  } catch (e) {
+    document.querySelector('.grafica').innerHTML = `<p class="list-empty">${esc(e.message)}; los datos están en la tabla.</p>`;
+    return;
+  }
+  const lienzo = document.getElementById('grafica-ventas');
+  if (!lienzo) return;
+  if (rep.grafica) rep.grafica.destroy();
+  const css = getComputedStyle(document.documentElement);
+  const tinta = css.getPropertyValue('--ink-900').trim() || '#1c2b4a';
+  const texto = css.getPropertyValue('--text-3').trim() || '#636c7e';
+  const linea = css.getPropertyValue('--line-soft').trim() || '#e7eaef';
+  // Una sola serie: sin leyenda (el título la nombra), barras finas, rejilla tenue y tooltip al pasar el mouse
+  rep.grafica = new window.Chart(lienzo, {
+    type: 'bar',
+    data: {
+      labels: d.porPeriodo.map(p => etiquetaPeriodo(p.periodo)),
+      datasets: [{ label: 'Ingresos', data: d.porPeriodo.map(p => Number(p.ingresos)), backgroundColor: tinta, borderRadius: 4, maxBarThickness: 36 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `${window.formatPrecio(c.parsed.y)} · ${d.porPeriodo[c.dataIndex].pedidos} pedido(s)` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: texto } },
+        y: { beginAtZero: true, border: { display: false }, grid: { color: linea }, ticks: { color: texto, callback: (v) => window.formatPrecio(v) } }
+      }
+    }
+  });
+}
+
+/**
+ * Exportar a Excel: convierte las tablas visibles del reporte a CSV.
+ * ";" como separador y BOM (﻿) para que Excel en español abra bien columnas y tildes.
+ */
+function exportarExcel() {
+  const tablas = [...document.querySelectorAll('#rep-cuerpo table')];
+  if (!tablas.length) { window.showToast('Genera el reporte primero.', 'error'); return; }
+  const celda = (t) => {
+    const v = t.replace(/\s+/g, ' ').trim();
+    return /[";\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
+  const lineas = [`Librería Andrés;${rep.pestana.nombre};${document.getElementById('rep-rango').textContent}`, ''];
+  tablas.forEach(tabla => {
+    const titulo = tabla.closest('section, .table-wrap')?.previousElementSibling?.textContent
+      || tabla.closest('section')?.querySelector('h2')?.textContent || '';
+    if (titulo) lineas.push(celda(titulo));
+    tabla.querySelectorAll('tr').forEach(tr => {
+      const celdas = [...tr.children];
+      if (celdas.length === 1 && celdas[0].colSpan > 1) return;   // fila de "sin datos"
+      lineas.push(celdas.map(c => celda(c.innerText.replace(/\s*\n\s*/g, ' · '))).join(';'));   // innerText: el texto tal como se ve
+    });
+    lineas.push('');
+  });
+  const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `reporte-${rep.pestana.id}-${rep.filtros.desde || 'inicio'}-a-${rep.filtros.hasta || 'hoy'}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}

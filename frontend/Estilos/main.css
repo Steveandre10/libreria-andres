@@ -963,3 +963,76 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .historial-estados li { padding: 6px 0; border-top: 1px solid var(--line-soft); }
 .historial-estados time { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); margin-left: 6px; }
 .historial-estados div { color: var(--text-2); font-size: var(--fs-xs); }
+
+/* ===================================================================
+   RF10 · Avisos de stock bajo
+   =================================================================== */
+.rail-link .count + .count { margin-left: 4px; }
+.rail-link .count[hidden] + .count { margin-left: auto; }
+.rail-link .count-alerta { background: var(--red-rule); color: #fff; }
+.alerta-icono { color: #8a5a00; font-size: 1.05rem; width: 20px; text-align: center; }
+.alerta-nueva { background: #fffaf0; }
+.alerta-nueva .alerta-icono { color: var(--red); }
+.field-error { color: var(--red); font-size: var(--fs-sm); margin-top: 8px; }
+
+/* ===================================================================
+   RF19 · Tablero de indicadores (solo admin)
+   =================================================================== */
+.kpis-panel { margin-bottom: 22px; }
+.kpis-panel .panel-head p { display: flex; align-items: center; gap: 6px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.kpi { display: flex; flex-direction: column; gap: 4px; padding: 16px 20px; border-right: 1px solid var(--line-soft); color: inherit; text-decoration: none; min-width: 0; }
+.kpi:last-child { border-right: 0; }
+a.kpi:hover { background: var(--ficha); }
+.kpi-label { font-size: var(--fs-sm); color: var(--text-2); font-weight: 600; }
+.kpi-valor { font-size: 1.75rem; font-weight: 800; font-stretch: 106%; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi-pie { font-size: var(--fs-xs); color: var(--text-3); }
+.kpi-atencion .kpi-valor { color: var(--red); }
+.kpis-listas { padding: 16px 20px; gap: 22px; }
+.kpis-listas h3 { margin-bottom: 8px; }
+.list-compacta li { padding: 8px 0; }
+@media (max-width: 900px) { .kpis { grid-template-columns: 1fr 1fr; } .kpi:nth-child(2) { border-right: 0; } .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--line-soft); } }
+
+/* Barras horizontales (más vendidos): una sola serie, barra fina con punta redondeada */
+.barras { list-style: none; display: grid; gap: 9px; padding: 4px 0; }
+.panel > .barras { padding: 14px 20px; }
+.barras li { display: grid; grid-template-columns: minmax(0, 11rem) 1fr 2.5rem; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+.barras-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barras-pista { height: 10px; background: var(--line-soft); border-radius: 4px; overflow: hidden; }
+.barras-pista span { display: block; height: 100%; background: var(--ink-900); border-radius: 0 4px 4px 0; min-width: 3px; }
+.barras .num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ===================================================================
+   RF8 / RF6 / RF20 · Reportes
+   =================================================================== */
+.tabs-reporte { display: flex; gap: 4px; box-shadow: inset 0 -1px 0 var(--line); margin-bottom: 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs-reporte a { padding: 9px 14px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs-reporte a:hover { color: var(--text); }
+.tabs-reporte a[aria-current="page"] { color: var(--ink-900); border-bottom-color: var(--ink-900); }
+.filtros-reporte { grid-template-columns: minmax(0, 1.4fr) 165px 165px auto; }
+@media (max-width: 760px) { .filtros-reporte { grid-template-columns: 1fr 1fr; } .filtros-reporte > .field:first-child { grid-column: 1 / -1; } }
+.reporte-sub { font-size: var(--fs-md); margin: 6px 0 10px; }
+.reporte .summary-strip { margin-bottom: 22px; }
+.reporte-usuario { padding: 14px 20px; margin-bottom: 16px; }
+.reporte-usuario b { display: block; font-size: var(--fs-md); }
+.reporte-usuario span { font-size: var(--fs-sm); color: var(--text-2); }
+.grafica { position: relative; height: 260px; padding: 14px 20px 0; }
+.barra-estado { display: flex; gap: 2px; height: 14px; margin: 16px 20px 6px; border-radius: 4px; overflow: hidden; background: var(--line-soft); }
+.barra-estado span { min-width: 0; }
+.seg-ok { background: var(--ok); } .seg-bajo { background: #c7922a; } .seg-out { background: var(--red); }
+.panel > .list-compacta { padding: 0 20px 8px; }
+.list-compacta li { gap: 10px; }
+.reporte-titulo-impreso { display: none; }
+
+/* PDF: "Imprimir -> Guardar como PDF" deja solo el reporte */
+@media print {
+  .rail, .no-imprimir, .toast-container { display: none !important; }
+  .app { display: block; }
+  .work { padding: 0; margin: 0; }
+  body { background: #fff; }
+  .reporte-titulo-impreso { display: block; font-weight: 700; margin-bottom: 12px; }
+  .panel, .table-wrap, .summary-strip { box-shadow: none; break-inside: avoid; }
+  .table-wrap { overflow: visible; }
+  .admin-section { animation: none; }
+  a { color: inherit; text-decoration: none; }
+}
