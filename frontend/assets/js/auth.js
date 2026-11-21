@@ -173,6 +173,7 @@
         ${window.puede('resumen') ? link('admin.html#resumen', 'fa-chart-simple', 'Resumen', seccion === 'resumen') : ''}
         ${window.puede('libros') ? link('admin.html#libros', 'fa-book', 'Libros', seccion === 'libros', '<span class="count" data-count="libros" hidden></span>') : ''}
         ${window.puede('inventario') ? link('admin.html#inventario', 'fa-boxes-stacked', 'Inventario', seccion === 'inventario', '<span class="count" data-count="solicitudes" hidden></span>') : ''}
+        ${window.puede('facturas') ? link('admin.html#facturas', 'fa-file-invoice-dollar', 'Facturas', seccion === 'facturas') : ''}
         ${window.puede('usuarios') ? link('admin.html#usuarios', 'fa-users', 'Usuarios', seccion === 'usuarios') : ''}
         ${window.puede('resenas') ? link('admin.html#resenas', 'fa-comment', 'Reseñas', seccion === 'resenas') : ''}
         ${window.puede('roles') ? link('admin.html#roles', 'fa-user-shield', 'Roles y permisos', seccion === 'roles') : ''}

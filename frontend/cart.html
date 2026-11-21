@@ -285,7 +285,7 @@
 
     /** RF17 · Pinta las formas de pago activas como opciones del checkout. */
     function pintarFormasDePago() {
-      const iconos = (n) => /tarjeta/i.test(n) ? 'fa-credit-card' : (/nequi|daviplata/i.test(n) ? 'fa-mobile-screen' : (/efectivo/i.test(n) ? 'fa-money-bill' : 'fa-wallet'));
+      const iconos = (n) => /tarjeta/i.test(n) ? 'fa-credit-card' : (/nequi|daviplata/i.test(n) ? 'fa-mobile-screen' : (/efectivo/i.test(n) ? 'fa-money-bill' : (/pse/i.test(n) ? 'fa-building-columns' : 'fa-wallet')));
       const anterior = document.querySelector('input[name="payment-method"]:checked')?.value;
       document.getElementById('pay-options').innerHTML = opciones.metodos_pago.map((m, i) => `
         <label class="pay-option">

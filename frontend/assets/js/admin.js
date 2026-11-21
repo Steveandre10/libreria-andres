@@ -6,7 +6,7 @@
 
 const esc = (v) => window.esc(v);
 /** RF18 · Módulos de la administración y su nombre visible (mismos que en el backend). */
-const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion
+const NOMBRES_MODULO = { resumen: 'Resumen', libros: 'Libros', inventario: 'Inventario', facturas: 'Facturas', usuarios: 'Usuarios', resenas: 'Reseñas', roles: 'Roles y permisos', configuracion: 'Configuración' }; // RF14: + inventario · RF17: + configuracion
 const MODULOS = Object.keys(NOMBRES_MODULO);
 const estado = {
   libros: [],
@@ -97,7 +97,7 @@ function enrutar() {
   actualizarConteoRail();
 
   const root = document.getElementById('admin-root');
-  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
+  const vistas = { resumen: vistaResumen, libros: vistaLibros, inventario: vistaInventario, facturas: vistaFacturas, usuarios: vistaUsuarios, resenas: vistaResenas, roles: vistaRoles, configuracion: vistaConfiguracion };
 
   // RF18 · criterio 3: sin permiso para ver el módulo -> acceso denegado
   if (!vistas[seccion] || !window.puede(seccion, 'ver')) {
@@ -1442,6 +1442,7 @@ function iconoMetodo(nombre = '') {
   if (n.includes('tarjeta')) return 'fa-credit-card';
   if (n.includes('nequi') || n.includes('daviplata')) return 'fa-mobile-screen';
   if (n.includes('efectivo')) return 'fa-money-bill';
+  if (n.includes('pse')) return 'fa-building-columns';   // RF3: débito bancario
   return 'fa-wallet';
 }
 
@@ -1566,3 +1567,141 @@ window.eliminarEnvio = async function(id) {
     window.showToast(err.message, 'error');
   }
 };
+
+
+/* ---------------------------------------------------------------
+   FACTURAS (RF7)
+   Búsqueda por número de pedido exacto y/o rango de fechas.
+   Los filtros se mandan al servidor (GET /api/facturas?pedido=&desde=&hasta=)
+   y cada resultado se puede ABRIR o DESCARGAR (PDF) en factura.html.
+   --------------------------------------------------------------- */
+
+const fact = { filtros: { pedido: '', desde: '', hasta: '' }, resultados: [] };
+
+/** RF7 · Vista del módulo Facturas. */
+function vistaFacturas(root) {
+  const f = fact.filtros;
+  root.innerHTML = `
+    <section class="admin-section">
+      <header class="page-head">
+        <div><h1>Facturas</h1><p>Busca por número de pedido o por fecha, y abre o descarga la factura.</p></div>
+      </header>
+
+      <form class="panel filtros-facturas" id="form-facturas" novalidate>
+        <label class="field">
+          <span class="field-label">N.º de pedido</span>
+          <input class="input mono" name="pedido" inputmode="numeric" placeholder="Ej. 17" value="${esc(f.pedido)}" />
+        </label>
+        <label class="field">
+          <span class="field-label">Desde</span>
+          <input class="input" type="date" name="desde" value="${esc(f.desde)}" />
+        </label>
+        <label class="field">
+          <span class="field-label">Hasta</span>
+          <input class="input" type="date" name="hasta" value="${esc(f.hasta)}" />
+        </label>
+        <div class="filtros-acciones">
+          <button type="submit" class="btn btn-primary"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> Buscar</button>
+          <button type="button" class="btn btn-quiet" id="facturas-limpiar">Limpiar</button>
+        </div>
+        <div class="atajos-fecha">
+          <span class="field-hint">Rápido:</span>
+          <button type="button" class="link" data-rango="hoy">Hoy</button>
+          <button type="button" class="link" data-rango="7">Últimos 7 días</button>
+          <button type="button" class="link" data-rango="mes">Este mes</button>
+        </div>
+      </form>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Factura</th><th>Pedido</th><th>Fecha</th><th>Cliente</th><th>Pago</th><th class="right">Total</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+          <tbody id="facturas-tbody"><tr><td colspan="8"><p class="list-empty">Buscando…</p></td></tr></tbody>
+        </table>
+        <div class="table-foot" id="facturas-foot"></div>
+      </div>
+    </section>`;
+
+  const form = document.getElementById('form-facturas');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    f.pedido = form.pedido.value.trim();
+    f.desde = form.desde.value;
+    f.hasta = form.hasta.value;
+    buscarFacturas();
+  });
+  document.getElementById('facturas-limpiar').addEventListener('click', () => {
+    fact.filtros = { pedido: '', desde: '', hasta: '' };
+    vistaFacturas(root);
+  });
+  // Atajos: llenan el rango de fechas y buscan
+  form.querySelectorAll('[data-rango]').forEach(btn => btn.addEventListener('click', () => {
+    const hoy = new Date();
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    let desde = new Date(hoy);
+    if (btn.dataset.rango === '7') desde.setDate(hoy.getDate() - 6);
+    if (btn.dataset.rango === 'mes') desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    form.desde.value = iso(desde);
+    form.hasta.value = iso(hoy);
+    form.pedido.value = '';
+    form.requestSubmit();
+  }));
+
+  buscarFacturas();
+}
+
+/** RF7 · Pide al servidor las facturas según los filtros y pinta la tabla. */
+async function buscarFacturas() {
+  const { pedido, desde, hasta } = fact.filtros;
+  const tbody = document.getElementById('facturas-tbody');
+  const foot = document.getElementById('facturas-foot');
+
+  // Validación rápida en el navegador (el servidor también la hace)
+  if (desde && hasta && desde > hasta) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty" style="padding:28px"><h3>Revisa las fechas</h3><p>La fecha "Desde" no puede ser posterior a "Hasta".</p></div></td></tr>';
+    foot.textContent = '';
+    return;
+  }
+
+  const params = new URLSearchParams();
+  if (pedido) params.set('pedido', pedido);
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+
+  try {
+    const res = await window.fetchAPI(`/api/facturas?${params}`);
+    if (!res.ok) throw await leerError(res, 'No se pudieron buscar las facturas');
+    fact.resultados = (await res.json()).facturas;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty" style="padding:28px"><p>${esc(e.message)}</p></div></td></tr>`;
+    return;
+  }
+
+  const hayFiltro = pedido || desde || hasta;
+  foot.textContent = hayFiltro
+    ? `${fact.resultados.length} factura(s) encontradas`
+    : `Últimas ${fact.resultados.length} facturas`;
+
+  if (!fact.resultados.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty" style="padding:28px">
+      <i class="fas fa-file-circle-question" aria-hidden="true"></i>
+      <h3>No encontramos facturas</h3>
+      <p>${pedido ? `No hay una factura para el pedido ${esc(pedido)}.` : 'No hay facturas en ese rango de fechas.'} Revisa el número o amplía las fechas.</p>
+    </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = fact.resultados.map(x => `
+    <tr>
+      <td class="mono"><b>${window.numeroRegistro(x.id_factura)}</b></td>
+      <td class="mono">${window.numeroRegistro(x.id_pedido)}</td>
+      <td class="mono">${fechaHora(x.fecha_registro || x.fecha_emision)}</td>
+      <td><b>${esc(x.cliente || '—')}</b><div class="field-hint">${esc(x.cliente_email || '')}</div></td>
+      <td>${esc(x.metodo_pago || '—')}</td>
+      <td class="right"><b>${window.formatPrecio(x.total)}</b></td>
+      <td><span class="status ${x.estado_pedido === 'Devuelto' ? 'status-out' : 'status-ok'}">${x.estado_pedido === 'Devuelto' ? 'Anulada (devuelto)' : 'Vigente'}</span></td>
+      <td><div class="row-actions">
+        <a class="icon-btn" href="factura.html?id=${x.id_factura}" target="_blank" rel="noopener" aria-label="Abrir factura ${window.numeroRegistro(x.id_factura)}" title="Abrir"><i class="fas fa-eye"></i></a>
+        <a class="icon-btn" href="factura.html?id=${x.id_factura}&descargar=1" target="_blank" rel="noopener" aria-label="Descargar factura ${window.numeroRegistro(x.id_factura)} en PDF" title="Descargar PDF"><i class="fas fa-file-arrow-down"></i></a>
+      </div></td>
+    </tr>`).join('');
+}

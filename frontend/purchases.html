@@ -134,7 +134,8 @@
         <header class="ficha-head">
           <div class="ficha-call"><span>${window.numeroRegistro(p.id_pedido)}</span><span>Factura ${p.id_factura ? window.numeroRegistro(p.id_factura) : '—'}</span></div>
           <h2 id="pedido-titulo">Pedido del ${fechaCorta(p.fecha_registro)}</h2>
-          <p><span class="status ${est.clase}">${est.texto}</span></p>
+          <p><span class="status ${est.clase}">${est.texto}</span>
+            ${p.id_factura ? ` · <a class="link" href="factura.html?id=${p.id_factura}" target="_blank" rel="noopener">Ver o descargar factura</a>` : ''}</p>
           <button type="button" class="icon-btn sheet-close" data-close-sheet aria-label="Cerrar detalle"><i class="fas fa-xmark"></i></button>
         </header>
         <div class="ficha-body">

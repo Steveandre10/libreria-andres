@@ -929,3 +929,9 @@ dialog.confirm .confirm-actions { display: flex; justify-content: flex-end; gap:
 .envio-opciones .pay-option { gap: 10px; }
 .envio-opciones .pay-option .grow { flex: 1; min-width: 0; }
 .envio-opciones .pay-option small { display: block; color: var(--text-3); font-size: var(--fs-xs); }
+
+/* ---------- RF7: filtros de facturas ---------- */
+.filtros-facturas { display: grid; grid-template-columns: 160px 180px 180px auto; gap: 12px 14px; align-items: end; padding: 16px 18px; margin-bottom: 18px; }
+.filtros-acciones { display: flex; gap: 6px; }
+.atajos-fecha { grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; font-size: var(--fs-sm); }
+@media (max-width: 760px) { .filtros-facturas { grid-template-columns: 1fr 1fr; } .filtros-facturas > .field:first-child, .filtros-acciones { grid-column: 1 / -1; } }
