@@ -1,5 +1,7 @@
 import pool from '../config/db.js';
 import { moverStock, ErrorInventario } from './inventario.model.js';
+// RF17: métodos de pago y envíos configurables desde el panel
+import { exigirMetodoActivo, exigirEnvioActivo } from './tienda.model.js';
 
 /**
  * @file pedidos.model.js
@@ -7,9 +9,6 @@ import { moverStock, ErrorInventario } from './inventario.model.js';
  * pedidos → pedido_libro (qué libros y cuántos) → facturas → detalle_factura.
  * Cada venta descuenta del inventario y cada devolución lo repone (con moverStock).
  */
-
-/** Métodos de pago del checkout → id en la tabla metodos_pago. */
-export const METODOS_PAGO = { tarjeta: 1, nequi: 2, efectivo: 3 };
 
 /**
  * RF23 · Tasa de IVA que se aplica al carrito. ÚNICO lugar donde se configura.
@@ -22,11 +21,20 @@ export const ETIQUETA_IVA = 'IVA (libros excluidos)';
 /** Redondea a 2 decimales (centavos) para que la suma no quede como 39.989999999. */
 const redondear = (n) => Math.round(n * 100) / 100;
 
-/** RF23 · Subtotal, impuestos y total a partir del subtotal (misma regla para cotizar y para cobrar). */
-export const calcularTotales = (subtotal) => {
+/**
+ * RF23/RF17 · Subtotal, impuestos, envío y total (misma regla para cotizar y para cobrar).
+ * El IVA se calcula sobre los libros; el envío se suma aparte.
+ * @param {number} subtotal - Suma de los libros.
+ * @param {number} [costoEnvio=0] - Costo del tipo de envío elegido.
+ */
+export const calcularTotales = (subtotal, costoEnvio = 0) => {
   const sub = redondear(subtotal);
   const impuestos = redondear(sub * TASA_IVA);
-  return { subtotal: sub, impuestos, total: redondear(sub + impuestos), tasa_iva: TASA_IVA, etiqueta_iva: ETIQUETA_IVA };
+  const envio = redondear(costoEnvio);
+  return {
+    subtotal: sub, impuestos, costo_envio: envio, total: redondear(sub + impuestos + envio),
+    tasa_iva: TASA_IVA, etiqueta_iva: ETIQUETA_IVA
+  };
 };
 
 /**
@@ -36,8 +44,9 @@ export const calcularTotales = (subtotal) => {
  * - si el precio cambió o el stock ya no alcanza, el carrito lo avisa antes de pagar.
  *
  * @param {Array<{id_libro:number, cantidad:number}>} items
+ * @param {number|null} [idEnvio] - RF17: tipo de envío elegido (si no está activo, se avisa).
  */
-export const cotizar = async (items) => {
+export const cotizar = async (items, idEnvio = null) => {
   const ids = items.map(i => i.id_libro);
   const [libros] = ids.length
     ? await pool.query(
@@ -62,7 +71,19 @@ export const cotizar = async (items) => {
     };
   });
 
-  return { lineas, ...calcularTotales(subtotal), se_puede_pagar: lineas.every(l => !l.problema) };
+  // RF17: costo del envío elegido (solo si sigue activo)
+  let envio = null;
+  if (idEnvio) {
+    const [[e]] = await pool.query('SELECT id_tipo_envio, nombre, costo FROM tipos_envio WHERE id_tipo_envio = ? AND activo = 1', [idEnvio]);
+    envio = e ? { id_tipo_envio: e.id_tipo_envio, nombre: e.nombre, costo: Number(e.costo) } : null;
+  }
+
+  return {
+    lineas,
+    envio,
+    ...calcularTotales(subtotal, envio ? envio.costo : 0),
+    se_puede_pagar: lineas.every(l => !l.problema) && !!envio
+  };
 };
 
 /**
@@ -78,17 +99,22 @@ export const cotizar = async (items) => {
  * @param {Array<{id_libro:number, cantidad:number}>} datos.items
  * @param {{nombre:string, direccion:string, telefono:string}} datos.entrega
  * @param {number} datos.idMetodoPago
+ * @param {number} datos.idEnvio - RF17: tipo de envío elegido.
  * @returns {Promise<{id_pedido:number, id_factura:number, total:number, unidades:number}>}
  */
-export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago }) => {
+export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idEnvio }) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
+    // RF17: el método de pago y el envío deben seguir activos AHORA (el admin pudo cambiarlos)
+    const metodo = await exigirMetodoActivo(conn, idMetodoPago);
+    const envio = await exigirEnvioActivo(conn, idEnvio);
+
     const [pedido] = await conn.query(
-      `INSERT INTO pedidos (estado, fecha, id, nombre_destinatario, direccion_entrega, telefono_contacto)
-       VALUES ('Activo', CURDATE(), ?, ?, ?, ?)`,
-      [idUsuario, entrega.nombre, entrega.direccion, entrega.telefono]
+      `INSERT INTO pedidos (estado, fecha, id, nombre_destinatario, direccion_entrega, telefono_contacto, id_tipo_envio, costo_envio)
+       VALUES ('Activo', CURDATE(), ?, ?, ?, ?, ?, ?)`,
+      [idUsuario, entrega.nombre, entrega.direccion, entrega.telefono, envio.id_tipo_envio, envio.costo]
     );
     const idPedido = pedido.insertId;
 
@@ -123,14 +149,17 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago }) =
       unidades += item.cantidad;
     }
 
-    // RF23: la factura guarda subtotal, impuestos y total (calculados con TASA_IVA)
-    const totales = calcularTotales(sumaLineas);
+    // RF23/RF17: la factura guarda subtotal, impuestos, envío y total
+    const totales = calcularTotales(sumaLineas, envio.costo);
     await conn.query(
-      'UPDATE facturas SET subtotal = ?, impuestos = ?, total = ? WHERE id_factura = ?',
-      [totales.subtotal, totales.impuestos, totales.total, idFactura]
+      'UPDATE facturas SET subtotal = ?, impuestos = ?, costo_envio = ?, total = ? WHERE id_factura = ?',
+      [totales.subtotal, totales.impuestos, totales.costo_envio, totales.total, idFactura]
     );
     await conn.commit();
-    return { id_pedido: idPedido, id_factura: idFactura, unidades, ...totales };
+    return {
+      id_pedido: idPedido, id_factura: idFactura, unidades, ...totales,
+      metodo_pago: metodo.nombre_metodo, tipo_envio: envio.nombre
+    };
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -193,11 +222,13 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
   const [pedidos] = await pool.query(
     `SELECT p.id_pedido, p.estado, p.fecha_registro, p.nombre_destinatario, p.direccion_entrega,
             p.telefono_contacto, u.nombre AS cliente, u.email AS cliente_email,
-            f.subtotal, f.impuestos, f.total, f.id_factura, mp.nombre_metodo AS metodo_pago
+            f.subtotal, f.impuestos, f.costo_envio, f.total, f.id_factura, mp.nombre_metodo AS metodo_pago,
+            te.nombre AS tipo_envio
      FROM pedidos p
      LEFT JOIN usuarios u ON u.id = p.id
      LEFT JOIN facturas f ON f.id_pedido = p.id_pedido
      LEFT JOIN metodos_pago mp ON mp.id_metodo_pago = f.id_metodo_pago
+     LEFT JOIN tipos_envio te ON te.id_tipo_envio = p.id_tipo_envio
      ${idUsuario ? 'WHERE p.id = ?' : ''}
      ORDER BY p.id_pedido DESC
      LIMIT ?`,

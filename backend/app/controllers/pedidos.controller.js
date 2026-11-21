@@ -1,5 +1,5 @@
 import {
-  crearPedido, devolverPedido, getPedidos, METODOS_PAGO, cotizar,
+  crearPedido, devolverPedido, getPedidos, cotizar,
   crearSolicitud, getSolicitudes, responderSolicitud, MOTIVOS_DEVOLUCION
 } from '../models/pedidos.model.js';
 import { ErrorInventario } from '../models/inventario.model.js';
@@ -31,30 +31,35 @@ const normalizarItems = (items) => {
 };
 
 /**
- * POST /api/pedidos/cotizar · RF23: precios, stock, subtotal, impuestos y total
- * del carrito según la base de datos, sin comprar nada. Body: { items: [{ id_libro, cantidad }] }
+ * POST /api/pedidos/cotizar · RF23/RF17: precios, stock, subtotal, impuestos, envío y total
+ * del carrito según la base de datos, sin comprar nada. Body: { items: [{ id_libro, cantidad }], envio?: id_tipo_envio }
  */
 export const cotizarCarrito = async (req, res) => {
   try {
-    res.json(await cotizar(normalizarItems(req.body.items)));
+    const idEnvio = Number(req.body.envio) || null;
+    res.json(await cotizar(normalizarItems(req.body.items), idEnvio));
   } catch (error) {
     responderError(res, error);
   }
 };
 
 /**
- * POST /api/pedidos · RF14/RF23: el cliente confirma y paga su carrito.
- * Body: { items: [{ id_libro, cantidad }], entrega: { nombre, direccion, telefono }, metodo: 'tarjeta'|'nequi'|'efectivo' }
+ * POST /api/pedidos · RF14/RF23/RF17: el cliente confirma y paga su carrito.
+ * Body: { items: [{ id_libro, cantidad }], entrega: { nombre, direccion, telefono },
+ *         metodo: id_metodo_pago, envio: id_tipo_envio }
  */
 export const registrarPedido = async (req, res) => {
   try {
-    const { entrega = {}, metodo } = req.body;
+    const { entrega = {} } = req.body;
     const items = normalizarItems(req.body.items);
     if (!entrega.nombre || !entrega.direccion || !entrega.telefono) {
       return res.status(400).json({ error: 'Faltan los datos de entrega (nombre, dirección y teléfono).' });
     }
-    const idMetodoPago = METODOS_PAGO[metodo];
-    if (!idMetodoPago) return res.status(400).json({ error: 'Elige una forma de pago válida.' });
+    // RF17: ahora llegan los id de la BD; el modelo comprueba que sigan activos
+    const idMetodoPago = Number(req.body.metodo);
+    const idEnvio = Number(req.body.envio);
+    if (!Number.isInteger(idMetodoPago) || idMetodoPago < 1) return res.status(400).json({ error: 'Elige una forma de pago.' });
+    if (!Number.isInteger(idEnvio) || idEnvio < 1) return res.status(400).json({ error: 'Elige un tipo de envío.' });
 
     const resultado = await crearPedido({
       idUsuario: req.usuario.id,
@@ -64,7 +69,8 @@ export const registrarPedido = async (req, res) => {
         direccion: String(entrega.direccion).trim().slice(0, 150),
         telefono: String(entrega.telefono).trim().slice(0, 20)
       },
-      idMetodoPago
+      idMetodoPago,
+      idEnvio
     });
     res.status(201).json({ message: 'Pedido registrado', pedido: resultado });
   } catch (error) {
