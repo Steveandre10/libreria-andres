@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  registrarPedido, misPedidos, listarPedidos, registrarDevolucion,
+  registrarPedido, cotizarCarrito, misPedidos, listarPedidos, registrarDevolucion,
   solicitarDevolucion, listarSolicitudes, responderDevolucion
 } from '../controllers/pedidos.controller.js';
 import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.js';
@@ -8,6 +8,7 @@ import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.
 const router = express.Router();
 
 // RF14 · Cualquier usuario con sesión puede comprar, ver SUS pedidos y pedir una devolución
+router.post('/cotizar', verificarToken, cotizarCarrito);   // RF23: totales y stock del carrito, sin comprar
 router.post('/', verificarToken, registrarPedido);
 router.get('/mios', verificarToken, misPedidos);
 router.post('/:id/solicitud-devolucion', verificarToken, solicitarDevolucion);

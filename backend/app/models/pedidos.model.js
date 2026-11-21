@@ -12,6 +12,60 @@ import { moverStock, ErrorInventario } from './inventario.model.js';
 export const METODOS_PAGO = { tarjeta: 1, nequi: 2, efectivo: 3 };
 
 /**
+ * RF23 · Tasa de IVA que se aplica al carrito. ÚNICO lugar donde se configura.
+ * 0 porque en Colombia los libros están excluidos de IVA (Ley 98 de 1993).
+ * Si algún día cambia, se pone aquí (ej. 0.19) y carrito, factura y recibo lo toman solos.
+ */
+export const TASA_IVA = 0;
+export const ETIQUETA_IVA = 'IVA (libros excluidos)';
+
+/** Redondea a 2 decimales (centavos) para que la suma no quede como 39.989999999. */
+const redondear = (n) => Math.round(n * 100) / 100;
+
+/** RF23 · Subtotal, impuestos y total a partir del subtotal (misma regla para cotizar y para cobrar). */
+export const calcularTotales = (subtotal) => {
+  const sub = redondear(subtotal);
+  const impuestos = redondear(sub * TASA_IVA);
+  return { subtotal: sub, impuestos, total: redondear(sub + impuestos), tasa_iva: TASA_IVA, etiqueta_iva: ETIQUETA_IVA };
+};
+
+/**
+ * RF23 · Cotiza el carrito con los datos ACTUALES de la base de datos (precio y stock),
+ * sin comprar nada. El carrito la usa al abrirse y en cada cambio de cantidad, así:
+ * - los totales que ve el cliente los calcula el servidor (los mismos que se cobrarán),
+ * - si el precio cambió o el stock ya no alcanza, el carrito lo avisa antes de pagar.
+ *
+ * @param {Array<{id_libro:number, cantidad:number}>} items
+ */
+export const cotizar = async (items) => {
+  const ids = items.map(i => i.id_libro);
+  const [libros] = ids.length
+    ? await pool.query(
+      `SELECT l.id_libro, l.titulo, l.autor, l.precio, l.portada,
+              CAST(COALESCE(i.stock_actual, 0) AS SIGNED) AS stock
+       FROM libros l LEFT JOIN inventarios i ON i.id_libro = l.id_libro
+       WHERE l.id_libro IN (?)`, [ids])
+    : [[]];
+
+  let subtotal = 0;
+  const lineas = items.map(item => {
+    const libro = libros.find(l => l.id_libro === item.id_libro);
+    if (!libro) return { id_libro: item.id_libro, cantidad: item.cantidad, existe: false, problema: 'Este libro ya no está en el catálogo.' };
+    const precio = Number(libro.precio);
+    const alcanza = item.cantidad <= libro.stock;
+    if (alcanza) subtotal += precio * item.cantidad;
+    return {
+      id_libro: libro.id_libro, titulo: libro.titulo, autor: libro.autor, portada: libro.portada,
+      precio, stock: libro.stock, cantidad: item.cantidad, existe: true,
+      subtotal: redondear(precio * item.cantidad),
+      problema: alcanza ? null : (libro.stock === 0 ? 'Se agotó.' : `Solo quedan ${libro.stock} unidad(es).`)
+    };
+  });
+
+  return { lineas, ...calcularTotales(subtotal), se_puede_pagar: lineas.every(l => !l.problema) };
+};
+
+/**
  * RF14 · Registra una compra completa en UNA transacción:
  * 1. Crea el pedido y la factura.
  * 2. Por cada libro: valida y descuenta el stock (moverStock "Venta"), guarda la línea del pedido y de la factura.
@@ -44,7 +98,7 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago }) =
     );
     const idFactura = factura.insertId;
 
-    let total = 0;
+    let sumaLineas = 0;
     let unidades = 0;
     for (const item of items) {
       const [[libro]] = await conn.query('SELECT id_libro, precio FROM libros WHERE id_libro = ?', [item.id_libro]);
@@ -65,13 +119,18 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago }) =
         'INSERT INTO detalle_factura (cantidad, subtotal, id_factura, id_libro) VALUES (?, ?, ?, ?)',
         [item.cantidad, subtotal, idFactura, libro.id_libro]
       );
-      total += subtotal;
+      sumaLineas += subtotal;
       unidades += item.cantidad;
     }
 
-    await conn.query('UPDATE facturas SET total = ? WHERE id_factura = ?', [total, idFactura]);
+    // RF23: la factura guarda subtotal, impuestos y total (calculados con TASA_IVA)
+    const totales = calcularTotales(sumaLineas);
+    await conn.query(
+      'UPDATE facturas SET subtotal = ?, impuestos = ?, total = ? WHERE id_factura = ?',
+      [totales.subtotal, totales.impuestos, totales.total, idFactura]
+    );
     await conn.commit();
-    return { id_pedido: idPedido, id_factura: idFactura, total, unidades };
+    return { id_pedido: idPedido, id_factura: idFactura, unidades, ...totales };
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -134,7 +193,7 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
   const [pedidos] = await pool.query(
     `SELECT p.id_pedido, p.estado, p.fecha_registro, p.nombre_destinatario, p.direccion_entrega,
             p.telefono_contacto, u.nombre AS cliente, u.email AS cliente_email,
-            f.total, f.id_factura, mp.nombre_metodo AS metodo_pago
+            f.subtotal, f.impuestos, f.total, f.id_factura, mp.nombre_metodo AS metodo_pago
      FROM pedidos p
      LEFT JOIN usuarios u ON u.id = p.id
      LEFT JOIN facturas f ON f.id_pedido = p.id_pedido

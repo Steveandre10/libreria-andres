@@ -11,6 +11,27 @@ import routePedidos from './app/routes/pedidos.routes.js';   // RF14: ventas y d
 import routeInventario from './app/routes/inventario.routes.js'; // RF14: inventario en tiempo real
 const app = express();
 
+/**
+ * RF23 · Conexión segura (HTTPS).
+ * En Render el certificado HTTPS lo pone su proxy, que avisa con la cabecera
+ * `x-forwarded-proto` si el visitante entró por http o por https.
+ * - Si entró por http, se le redirige a la misma dirección con https.
+ * - Si entró por https, se envía HSTS: el navegador recordará usar SIEMPRE https
+ *   con este dominio durante 1 año (nadie puede "bajarlo" a http en el camino).
+ * En localhost no existe esa cabecera, así que en desarrollo no cambia nada.
+ */
+app.set('trust proxy', 1);
+app.use((req, res, next) => {
+  const protocolo = req.headers['x-forwarded-proto'];
+  if (protocolo === 'http') {
+    return res.redirect(308, `https://${req.headers.host}${req.originalUrl}`);
+  }
+  if (protocolo === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 // Configuración flexible de CORS para permitir Render y cualquier puerto de localhost durante desarrollo
 app.use(cors({
   origin: (origin, callback) => {

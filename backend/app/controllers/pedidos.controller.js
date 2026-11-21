@@ -1,5 +1,5 @@
 import {
-  crearPedido, devolverPedido, getPedidos, METODOS_PAGO,
+  crearPedido, devolverPedido, getPedidos, METODOS_PAGO, cotizar,
   crearSolicitud, getSolicitudes, responderSolicitud, MOTIVOS_DEVOLUCION
 } from '../models/pedidos.model.js';
 import { ErrorInventario } from '../models/inventario.model.js';
@@ -11,26 +11,45 @@ const responderError = (res, error) => {
 };
 
 /**
- * POST /api/pedidos · RF14: el cliente confirma su carrito.
+ * RF23 · Valida y ordena los libros del carrito: junta repetidos (mismo libro dos veces)
+ * y exige cantidades enteras de 1 en adelante (máximo 99 por libro).
+ * @returns {Array<{id_libro:number, cantidad:number}>}
+ * @throws {ErrorInventario} 400 si el carrito está vacío o tiene una cantidad inválida.
+ */
+const normalizarItems = (items) => {
+  if (!Array.isArray(items) || items.length === 0) throw new ErrorInventario('El carrito está vacío.', 400);
+  const porLibro = new Map();
+  for (const it of items) {
+    const id = Number(it.id_libro);
+    const cantidad = Number(it.cantidad);
+    if (!Number.isInteger(id) || !Number.isInteger(cantidad) || cantidad < 1 || cantidad > 99) {
+      throw new ErrorInventario('Hay una cantidad no válida en el carrito.', 400);
+    }
+    porLibro.set(id, (porLibro.get(id) || 0) + cantidad);
+  }
+  return [...porLibro].map(([id_libro, cantidad]) => ({ id_libro, cantidad }));
+};
+
+/**
+ * POST /api/pedidos/cotizar · RF23: precios, stock, subtotal, impuestos y total
+ * del carrito según la base de datos, sin comprar nada. Body: { items: [{ id_libro, cantidad }] }
+ */
+export const cotizarCarrito = async (req, res) => {
+  try {
+    res.json(await cotizar(normalizarItems(req.body.items)));
+  } catch (error) {
+    responderError(res, error);
+  }
+};
+
+/**
+ * POST /api/pedidos · RF14/RF23: el cliente confirma y paga su carrito.
  * Body: { items: [{ id_libro, cantidad }], entrega: { nombre, direccion, telefono }, metodo: 'tarjeta'|'nequi'|'efectivo' }
  */
 export const registrarPedido = async (req, res) => {
   try {
-    const { items, entrega = {}, metodo } = req.body;
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'El carrito está vacío.' });
-    }
-    // Junta repetidos (mismo libro dos veces) y valida cantidades enteras positivas
-    const porLibro = new Map();
-    for (const it of items) {
-      const id = Number(it.id_libro);
-      const cantidad = Number(it.cantidad);
-      if (!Number.isInteger(id) || !Number.isInteger(cantidad) || cantidad < 1) {
-        return res.status(400).json({ error: 'Hay una cantidad no válida en el carrito.' });
-      }
-      porLibro.set(id, (porLibro.get(id) || 0) + cantidad);
-    }
+    const { entrega = {}, metodo } = req.body;
+    const items = normalizarItems(req.body.items);
     if (!entrega.nombre || !entrega.direccion || !entrega.telefono) {
       return res.status(400).json({ error: 'Faltan los datos de entrega (nombre, dirección y teléfono).' });
     }
@@ -39,7 +58,7 @@ export const registrarPedido = async (req, res) => {
 
     const resultado = await crearPedido({
       idUsuario: req.usuario.id,
-      items: [...porLibro].map(([id_libro, cantidad]) => ({ id_libro, cantidad })),
+      items,
       entrega: {
         nombre: String(entrega.nombre).trim().slice(0, 100),
         direccion: String(entrega.direccion).trim().slice(0, 150),
