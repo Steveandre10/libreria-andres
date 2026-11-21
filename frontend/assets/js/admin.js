@@ -1185,16 +1185,16 @@ function fechaHora(v) {
 window.devolverPedido = async function(idPedido) {
   const p = inv.pedidos.find(x => x.id_pedido === idPedido);
   if (!p) return;
-  const ok = await window.confirmar({
-    titulo: `¿Registrar la devolución del ${window.numeroRegistro(idPedido)}?`,
-    mensaje: `Las ${p.items.reduce((s, i) => s + i.cantidad, 0)} unidad(es) vuelven al inventario y el pedido queda como Devuelto.`,
+  const estadoLibro = await pedirEstadoLibro({
+    titulo: `Registrar la devolución del ${window.numeroRegistro(idPedido)}`,
+    mensaje: `${p.items.map(i => `${i.cantidad}× ${i.titulo}`).join(', ')}. El pedido quedará como Devuelto y se generará la nota crédito.`,
     confirmar: 'Registrar devolución'
   });
-  if (!ok) return;
+  if (!estadoLibro) return;
   try {
-    const res = await window.fetchAPI(`/api/pedidos/${idPedido}/devolucion`, { method: 'POST' });
+    const res = await window.fetchAPI(`/api/pedidos/${idPedido}/devolucion`, { method: 'POST', body: JSON.stringify({ estado_libro: estadoLibro }) });
     if (!res.ok) throw await leerError(res, 'No se pudo registrar la devolución');
-    window.showToast('Devolución registrada. El stock ya se repuso.');
+    window.showToast((await res.json()).message);
     await cargarLibros();          // para que Libros y el Resumen también vean el stock nuevo
     await refrescarInventario();
   } catch (e) {
@@ -1233,7 +1233,8 @@ function pintarSolicitudes() {
         <div class="grow">
           <b>${window.numeroRegistro(sol.id_pedido)} · ${esc(sol.cliente || 'Cliente')} · ${window.formatPrecio(sol.total)}</b>
           <p class="quote"><b>${esc(sol.motivo)}</b>${sol.detalle ? ` — “${esc(sol.detalle)}”` : ''}</p>
-          <span>${esc(libros)} · pedida ${fechaHora(sol.fecha_solicitud)}${!pendiente ? ` · respondida por ${esc(sol.revisor || '—')}` : ''}</span>
+          <span>${esc(libros)} · pedida ${fechaHora(sol.fecha_solicitud)}${!pendiente ? ` · respondida por ${esc(sol.revisor || '—')} el ${fechaHora(sol.fecha_respuesta)}` : ''}</span>
+          ${sol.estado === 'Aprobada' ? `<span>Libro ${sol.estado_libro === 'Dañado' ? '<b style="color:var(--red)">dañado</b> · no volvió al stock' : 'en buen estado · volvió al stock'}${sol.id_nota ? ` · <a class="link" href="nota.html?id=${sol.id_nota}" target="_blank" rel="noopener">Nota crédito NC-${String(sol.id_nota).padStart(4, '0')}</a>` : ''}</span>` : ''}
           ${!pendiente && sol.respuesta ? `<span>Respuesta: ${esc(sol.respuesta)}</span>` : ''}
         </div>
         ${pendiente ? `
@@ -1259,13 +1260,15 @@ window.responderSolicitud = async function(idSolicitud, decision) {
   const unidades = sol.items.reduce((s, i) => s + i.cantidad, 0);
   let respuesta = '';
 
+  let estadoLibro = 'Bueno';
   if (decision === 'aprobar') {
-    const ok = await window.confirmar({
-      titulo: `¿Aprobar la devolución del ${window.numeroRegistro(sol.id_pedido)}?`,
-      mensaje: `Las ${unidades} unidad(es) vuelven al inventario y ${sol.cliente || 'el cliente'} verá su pedido como devuelto.`,
+    // RF9: el libro solo vuelve al stock si llegó en buen estado
+    estadoLibro = await pedirEstadoLibro({
+      titulo: `Aprobar la devolución del ${window.numeroRegistro(sol.id_pedido)}`,
+      mensaje: `${unidades} unidad(es). Motivo del cliente: «${sol.motivo}». Se generará la nota crédito y ${sol.cliente || 'el cliente'} verá su pedido como devuelto.`,
       confirmar: 'Aprobar devolución'
     });
-    if (!ok) return;
+    if (!estadoLibro) return;
   } else {
     respuesta = await pedirTexto({
       titulo: `Rechazar la devolución del ${window.numeroRegistro(sol.id_pedido)}`,
@@ -1279,7 +1282,7 @@ window.responderSolicitud = async function(idSolicitud, decision) {
   try {
     const res = await window.fetchAPI(`/api/pedidos/solicitudes/${idSolicitud}/responder`, {
       method: 'POST',
-      body: JSON.stringify({ decision, respuesta })
+      body: JSON.stringify({ decision, respuesta, estado_libro: estadoLibro })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'No se pudo responder la solicitud');
@@ -1290,6 +1293,42 @@ window.responderSolicitud = async function(idSolicitud, decision) {
     window.showToast(e.message, 'error');
   }
 };
+
+/**
+ * RF9 · Diálogo para aprobar una devolución eligiendo en qué estado llegó el libro.
+ * @returns {Promise<'Bueno'|'Dañado'|null>} null si se canceló.
+ */
+function pedirEstadoLibro({ titulo, mensaje, confirmar = 'Aprobar' }) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm';
+    dlg.innerHTML = `
+      <form class="ficha" method="dialog">
+        <div class="ficha-head"><h2>${esc(titulo)}</h2></div>
+        <div class="ficha-body">
+          <p>${esc(mensaje)}</p>
+          <fieldset class="estado-libro" style="border:0; display:grid; gap:8px; margin-top:12px">
+            <legend class="field-label" style="margin-bottom:6px">¿En qué estado llegó el libro?</legend>
+            <label class="pay-option"><input type="radio" name="estado" value="Bueno" checked /> <span><b>Buen estado</b> · vuelve al stock para venderse</span></label>
+            <label class="pay-option"><input type="radio" name="estado" value="Dañado" /> <span><b>Dañado</b> · no vuelve al stock</span></label>
+          </fieldset>
+          <div class="confirm-actions">
+            <button type="button" class="btn btn-secondary" data-cancelar>Cancelar</button>
+            <button type="submit" class="btn btn-primary">${esc(confirmar)}</button>
+          </div>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const cerrar = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    dlg.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      cerrar(dlg.querySelector('input[name="estado"]:checked').value);
+    });
+    dlg.querySelector('[data-cancelar]').addEventListener('click', () => cerrar(null));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); cerrar(null); });
+    dlg.showModal();
+  });
+}
 
 /**
  * Diálogo con forma de ficha que pide un texto obligatorio.
@@ -1782,7 +1821,8 @@ async function buscarFacturas() {
       <td class="mono">${fechaHora(x.fecha_registro || x.fecha_emision)}</td>
       <td><b>${esc(x.cliente || '—')}</b><div class="field-hint">${esc(x.cliente_email || '')}</div></td>
       <td class="right"><b>${window.formatPrecio(x.total)}</b></td>
-      <td><span class="status ${x.estado_pedido === 'Devuelto' ? 'status-out' : 'status-ok'}">${x.estado_pedido === 'Devuelto' ? 'Anulada' : 'Vigente'}</span></td>
+      <td><span class="status ${x.estado_pedido === 'Devuelto' ? 'status-out' : 'status-ok'}">${x.estado_pedido === 'Devuelto' ? 'Anulada' : 'Vigente'}</span>
+        ${x.id_nota ? `<div><a class="link field-hint" href="nota.html?id=${x.id_nota}" target="_blank" rel="noopener">NC-${String(x.id_nota).padStart(4, '0')}</a></div>` : ''}</td>
       <td class="celda-dian">
         <span class="status ${ESTADO_DIAN[x.estado_dian]?.clase || 'status-admin'}">${ESTADO_DIAN[x.estado_dian]?.texto || x.estado_dian}</span>
         ${x.estado_dian === 'Rechazada' && x.motivo_rechazo ? `<div class="motivo-dian" title="${esc(x.motivo_rechazo)}">${esc(x.motivo_rechazo)}</div>` : ''}

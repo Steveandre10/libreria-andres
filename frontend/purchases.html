@@ -117,6 +117,7 @@
               </span>
               <span class="pedido-resumen">${unidades} libro(s) · ${esc(p.items.map(i => i.titulo).join(', '))}</span>
               ${p.id_factura ? `<span class="pedido-resumen"><i class="fas fa-file-invoice" aria-hidden="true"></i> Factura ${window.numeroRegistro(p.id_factura)} disponible</span>` : ''}
+              ${p.nota_credito ? `<span class="pedido-resumen"><i class="fas fa-receipt" aria-hidden="true"></i> Nota crédito NC-${String(p.nota_credito.id_nota).padStart(4, '0')} por ${window.formatPrecio(p.nota_credito.total_nota)}</span>` : ''}
             </span>
             <span class="pedido-ver">Ver detalle <i class="fas fa-chevron-right" aria-hidden="true"></i></span>
           </button>`;
@@ -148,6 +149,15 @@
               <span class="field-hint">${{ Aceptada: 'Validada · con CUFE', Rechazada: 'En revisión por la tienda', Enviada: 'En validación', Pendiente: 'Pendiente de validación' }[p.estado_dian] || ''}</span></div>
             <a class="btn btn-secondary btn-sm" href="factura.html?id=${p.id_factura}" target="_blank" rel="noopener"><i class="fas fa-eye" aria-hidden="true"></i> Ver</a>
             <a class="btn btn-primary btn-sm" href="factura.html?id=${p.id_factura}&descargar=1" target="_blank" rel="noopener"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</a>
+          </div>` : ''}
+
+          <!-- RF4: nota crédito generada al aprobar la devolución -->
+          ${p.nota_credito ? `
+          <div class="factura-acciones nota-acciones">
+            <div><span class="field-label">Nota crédito</span><b class="mono">NC-${String(p.nota_credito.id_nota).padStart(4, '0')}</b>
+              <span class="field-hint">A tu favor: ${window.formatPrecio(p.nota_credito.total_nota)}</span></div>
+            <a class="btn btn-secondary btn-sm" href="nota.html?id=${p.nota_credito.id_nota}" target="_blank" rel="noopener"><i class="fas fa-eye" aria-hidden="true"></i> Ver</a>
+            <a class="btn btn-primary btn-sm" href="nota.html?id=${p.nota_credito.id_nota}&descargar=1" target="_blank" rel="noopener"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Descargar PDF</a>
           </div>` : ''}
 
           <dl class="ficha-facts">
