@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   registrarPedido, cotizarCarrito, misPedidos, listarPedidos, registrarDevolucion,
-  solicitarDevolucion, listarSolicitudes, responderDevolucion
+  solicitarDevolucion, listarSolicitudes, responderDevolucion, actualizarEstadoPedido
 } from '../controllers/pedidos.controller.js';
 import { verificarToken, requerirPermiso } from '../middlewares/auth.middleware.js';
 
@@ -17,6 +17,7 @@ router.post('/:id/solicitud-devolucion', verificarToken, solicitarDevolucion);
 router.get('/', verificarToken, requerirPermiso('inventario', 'ver'), listarPedidos);
 router.get('/solicitudes', verificarToken, requerirPermiso('inventario', 'ver'), listarSolicitudes);
 router.post('/solicitudes/:id/responder', verificarToken, requerirPermiso('inventario', 'editar'), responderDevolucion);
+router.put('/:id/estado', verificarToken, requerirPermiso('inventario', 'editar'), actualizarEstadoPedido);   // RF27
 router.post('/:id/devolucion', verificarToken, requerirPermiso('inventario', 'editar'), registrarDevolucion);
 
 export default router;

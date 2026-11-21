@@ -122,6 +122,8 @@ export const crearPedido = async ({ idUsuario, items, entrega, idMetodoPago, idE
       [idUsuario, entrega.nombre, entrega.direccion, entrega.telefono, envio.id_tipo_envio, envio.costo, metodo.id_metodo_pago]
     );
     const idPedido = pedido.insertId;
+    // RF27: primer estado del historial
+    await conn.query(`INSERT INTO pedidos_estados (id_pedido, estado, nota) VALUES (?, 'Pendiente', 'Pedido recibido')`, [idPedido]);
 
     const [factura] = await conn.query(
       `INSERT INTO facturas (fecha_emision, total, id_pedido, id_metodo_pago, documento_adquiriente) VALUES (CURDATE(), 0, ?, ?, ?)`,
@@ -194,7 +196,12 @@ const devolverDentroDe = async (conn, idPedido, idUsuario, { estadoLibro = 'Buen
       });
     }
   }
-  await conn.query(`UPDATE pedidos SET estado = 'Devuelto' WHERE id_pedido = ?`, [idPedido]);
+  // RF27: un pedido devuelto queda "Cancelado" en su seguimiento
+  await conn.query(`UPDATE pedidos SET estado = 'Devuelto', estado_envio = 'Cancelado' WHERE id_pedido = ?`, [idPedido]);
+  await conn.query(
+    'INSERT INTO pedidos_estados (id_pedido, estado, nota, id_usuario) VALUES (?, ?, ?, ?)',
+    [idPedido, 'Cancelado', `Devuelto: ${String(motivo).slice(0, 150)}`, idUsuario]
+  );
 
   // RF4: la nota crédito se crea sola, en la misma transacción (si algo falla, no queda nada a medias)
   const idNota = await crearNotaCredito(conn, {
@@ -244,7 +251,7 @@ export const devolverPedido = async (idPedido, idUsuario, { estadoLibro = 'Bueno
  */
 export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
   const [pedidos] = await pool.query(
-    `SELECT p.id_pedido, p.estado, p.fecha_registro, p.nombre_destinatario, p.direccion_entrega,
+    `SELECT p.id_pedido, p.estado, p.estado_envio, p.fecha_registro, p.nombre_destinatario, p.direccion_entrega,
             p.telefono_contacto, u.nombre AS cliente, u.email AS cliente_email,
             f.subtotal, f.impuestos, f.costo_envio, f.total, f.id_factura, f.estado_dian, mp.nombre_metodo AS metodo_pago,
             te.nombre AS tipo_envio
@@ -280,8 +287,14 @@ export const getPedidos = async ({ idUsuario = null, limite = 50 } = {}) => {
      JOIN facturas f ON f.id_factura = n.id_factura WHERE f.id_pedido IN (?) AND n.tipo = 'Crédito'`,
     [pedidos.map(p => p.id_pedido)]
   );
+  // RF27: historial de estados de cada pedido (del más antiguo al más reciente)
+  const [cambios] = await pool.query(
+    `SELECT id_pedido, estado, nota, fecha FROM pedidos_estados WHERE id_pedido IN (?) ORDER BY fecha, id_cambio`,
+    [pedidos.map(p => p.id_pedido)]
+  );
   return pedidos.map(p => ({
     ...p,
+    historial_estados: cambios.filter(c => c.id_pedido === p.id_pedido),
     nota_credito: notas.find(n => n.id_pedido === p.id_pedido) || null,
     items: lineas.filter(l => l.id_pedido === p.id_pedido),
     solicitud: solicitudes.find(s => s.id_pedido === p.id_pedido) || null
@@ -386,6 +399,59 @@ export const responderSolicitud = async ({ idSolicitud, aprobar, respuesta, idRe
     );
     await conn.commit();
     return resultado;
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+};
+
+/* ---------------------------------------------------------------
+   ESTADO DEL PEDIDO Y DEL ENVÍO (RF27)
+   Pendiente -> Pagado -> Enviado -> Entregado   (y Cancelado antes de entregar)
+   --------------------------------------------------------------- */
+
+/** A qué estados se puede pasar desde cada estado (solo hacia adelante). */
+export const SIGUIENTES_ESTADOS = {
+  Pendiente: ['Pagado', 'Cancelado'],
+  Pagado:    ['Enviado', 'Cancelado'],
+  Enviado:   ['Entregado'],
+  Entregado: [],
+  Cancelado: []
+};
+
+/**
+ * RF27 · El encargado cambia el estado de un pedido; queda en el historial con fecha y nota.
+ * Cancelar = devolución completa (stock de vuelta + nota crédito), para que la contabilidad cuadre.
+ * @param {{idPedido:number, estado:string, nota?:string, idUsuario:number}} datos
+ */
+export const cambiarEstadoPedido = async ({ idPedido, estado, nota = '', idUsuario }) => {
+  const [[pedido]] = await pool.query('SELECT id_pedido, estado, estado_envio FROM pedidos WHERE id_pedido = ?', [idPedido]);
+  if (!pedido) throw new ErrorInventario('El pedido no existe.', 404);
+  const permitidos = SIGUIENTES_ESTADOS[pedido.estado_envio] || [];
+  if (!permitidos.includes(estado)) {
+    throw new ErrorInventario(
+      permitidos.length
+        ? `Un pedido "${pedido.estado_envio}" solo puede pasar a: ${permitidos.join(' o ')}.`
+        : `Un pedido "${pedido.estado_envio}" ya no cambia de estado.`
+    );
+  }
+
+  if (estado === 'Cancelado') {
+    // Reutiliza la devolución: repone el stock, crea la nota crédito y registra el estado "Cancelado"
+    return devolverPedido(idPedido, idUsuario, { estadoLibro: 'Bueno', motivo: nota ? `Pedido cancelado: ${nota}` : 'Pedido cancelado por la tienda' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('UPDATE pedidos SET estado_envio = ? WHERE id_pedido = ?', [estado, idPedido]);
+    await conn.query(
+      'INSERT INTO pedidos_estados (id_pedido, estado, nota, id_usuario) VALUES (?, ?, ?, ?)',
+      [idPedido, estado, String(nota || '').trim().slice(0, 200) || null, idUsuario]
+    );
+    await conn.commit();
   } catch (error) {
     await conn.rollback();
     throw error;

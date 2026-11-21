@@ -1,5 +1,5 @@
 import {
-  crearPedido, devolverPedido, getPedidos, cotizar,
+  crearPedido, devolverPedido, getPedidos, cotizar, cambiarEstadoPedido, SIGUIENTES_ESTADOS,
   crearSolicitud, getSolicitudes, responderSolicitud, MOTIVOS_DEVOLUCION
 } from '../models/pedidos.model.js';
 import { ErrorInventario } from '../models/inventario.model.js';
@@ -180,6 +180,21 @@ export const responderDevolucion = async (req, res) => {
       message: decision === 'aprobar' ? mensajeDevolucion(r) : 'Solicitud rechazada. El cliente verá tu respuesta.',
       ...r
     });
+  } catch (error) {
+    responderError(res, error);
+  }
+};
+
+/**
+ * PUT /api/pedidos/:id/estado · RF27: el encargado actualiza el estado del pedido.
+ * Body: { estado: 'Pagado'|'Enviado'|'Entregado'|'Cancelado', nota?: texto (ej. número de guía) }
+ */
+export const actualizarEstadoPedido = async (req, res) => {
+  try {
+    const { estado } = req.body;
+    if (!Object.keys(SIGUIENTES_ESTADOS).includes(estado)) return res.status(400).json({ error: 'Estado no válido.' });
+    await cambiarEstadoPedido({ idPedido: Number(req.params.id), estado, nota: req.body.nota, idUsuario: req.usuario.id });
+    res.json({ message: `El pedido ahora está "${estado}".${estado === 'Cancelado' ? ' Se repuso el stock y se generó la nota crédito.' : ''}` });
   } catch (error) {
     responderError(res, error);
   }
