@@ -16,8 +16,20 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-    ssl: process.env.DB_CA_PATH ? { ca: fs.readFileSync(process.env.DB_CA_PATH) } : undefined
+  ssl: certificadoSSL()
 });
+
+/**
+ * Conexión cifrada (SSL), obligatoria en Aiven. El certificado "CA" de Aiven se puede dar de dos formas:
+ *  - DB_SSL_CA: el texto del certificado pegado en la variable de Render (-----BEGIN CERTIFICATE----- …)
+ *  - DB_CA_PATH: la ruta a un archivo ca.pem (útil en tu PC)
+ * Sin ninguna de las dos (XAMPP local), se conecta sin SSL.
+ */
+function certificadoSSL() {
+  if (process.env.DB_SSL_CA) return { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n') };
+  if (process.env.DB_CA_PATH) return { ca: fs.readFileSync(process.env.DB_CA_PATH) };
+  return undefined;
+}
 
 export default pool;
 

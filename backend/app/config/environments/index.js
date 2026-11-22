@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -7,10 +8,22 @@ const __dirname = path.dirname(__filename);
 
 const environment = process.env.NODE_ENV || 'developer';
 
-dotenv.config({
-  path: path.resolve(path.join(__dirname, `${environment}.env`)),
-  override: true
-});
+/*
+ * Carga `<entorno>.env` si existe (en tu PC: developer.env).
+ * override: false -> las variables que ya existen GANAN sobre el archivo.
+ * Así, en Render mandan las variables del panel "Environment" y no un archivo del repositorio
+ * (production.env ya no se sube a GitHub porque tenía contraseñas).
+ */
+const archivo = path.resolve(path.join(__dirname, `${environment}.env`));
+if (fs.existsSync(archivo)) {
+  dotenv.config({ path: archivo, override: false });
+}
+
+// En producción no se arranca con la clave de ejemplo: cualquiera podría falsificar sesiones.
+if (environment === 'production' && !process.env.JWT_SECRET) {
+  console.error('Falta la variable JWT_SECRET en Render (Environment). El servidor no arranca sin ella.');
+  process.exit(1);
+}
 
 const config = {
   PORT: process.env.PORT || 3000,

@@ -1,2 +1,10 @@
 node_modules/
-app/config/environments/*.env
+backend/node_modules/
+
+# Claves y contraseñas: NUNCA se suben a GitHub
+backend/app/config/environments/developer.env
+backend/app/config/environments/production.env
+
+# Archivos locales de herramientas
+.claude/
+.impeccable/
