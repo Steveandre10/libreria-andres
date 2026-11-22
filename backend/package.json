@@ -1,7 +1,7 @@
 {
-  "name": "libreria-andres-backend",
+  "name": "libreria-adrian-backend",
   "version": "1.0.0",
-  "description": "Backend para Librería Andrés",
+  "description": "Backend para Librería Adrián",
   "main": "index.js",
   "type": "module",
   "scripts": {

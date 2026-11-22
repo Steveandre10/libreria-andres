@@ -1,4 +1,4 @@
-# Diseño · Librería Andrés — "El Fichero"
+# Diseño · Librería Adrián — "El Fichero"
 
 Cada libro es una ficha de catálogo de biblioteca: cartulina clara, raya roja de cabecera, número de registro mecanografiado. La tienda (lectores) y la administración (dueño) leen el mismo registro. Todo vive en `frontend/Estilos/main.css`; los tokens están en `:root`.
 

@@ -63,7 +63,7 @@ app.use(express.json());
 const destinoMysql = `${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}`;
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Servidor funcionando (Librería Andrés!)', version: '2.0.0' });
+  res.json({ message: 'Servidor funcionando (Librería Adrián!)', version: '2.0.0' });
 });
 
 /**

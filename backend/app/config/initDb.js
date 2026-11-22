@@ -74,7 +74,7 @@ export async function inicializarBaseDeDatos() {
       await pool.query(
         'INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
         [
-          'Administrador Andrés', 'admin@libreria.com', passwordAdmin, 'admin',
+          'Administrador Adrián', 'admin@libreria.com', passwordAdmin, 'admin',
           'Lector Demo', 'demo@libreria.com', passwordDemo, 'usuario'
         ]
       );

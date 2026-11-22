@@ -1,8 +1,8 @@
 {
 	"info": {
 		"_postman_id": "0d20ef45-8025-4c07-ba71-6c2ab274b5c7",
-		"name": "Libreria Andres API",
-		"description": "Colección de peticiones para probar la API de la Librería Andrés. Incluye pruebas exitosas y de error para registro, login, listado, consulta por ID y eliminación de usuarios.",
+		"name": "Libreria Adrian API",
+		"description": "Colección de peticiones para probar la API de la Librería Adrián. Incluye pruebas exitosas y de error para registro, login, listado, consulta por ID y eliminación de usuarios.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [

@@ -13,7 +13,7 @@ web
 
 ## Product Purpose
 
-Tienda en línea de una librería real (Librería Andrés). El catálogo vive en MySQL y se sirve por una API Node/Express; el sitio permite comprar (pasarela de pago aún simulada) y le da al dueño un espacio cómodo y profesional para administrar su negocio sin tocar la base de datos.
+Tienda en línea de una librería real (Librería Adrián). El catálogo vive en MySQL y se sirve por una API Node/Express; el sitio permite comprar (pasarela de pago aún simulada) y le da al dueño un espacio cómodo y profesional para administrar su negocio sin tocar la base de datos.
 
 ## Operating Context
 
@@ -30,7 +30,7 @@ Tienda en línea de una librería real (Librería Andrés). El catálogo vive en
 
 ## Brand Commitments
 
-- Nombre: **Librería Andrés** (el login decía "Librería Adrián"; es un error, el nombre correcto es Andrés).
+- Nombre: **Librería Adrián** (nombre real del negocio; las direcciones web de Render siguen siendo `libreria-andres…` porque así se crearon los servicios).
 - Lema existente: "Cultivando el saber literario".
 - Todo lo demás de la identidad visual (colores, tipografía, estilo) es libre de reemplazar.
 

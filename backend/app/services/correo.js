@@ -52,7 +52,7 @@ export const enviarCorreo = async ({ para, asunto, html, texto }) => {
   const info = await t.sendMail({
     // Remitente: SMTP_FROM, o el mismo Gmail (Gmail obliga a enviar desde la cuenta autenticada)
     from: process.env.SMTP_FROM
-      || (process.env.SMTP_USER ? `"Librería Andrés" <${process.env.SMTP_USER}>` : '"Librería Andrés" <facturas@libreria-andres.test>'),
+      || (process.env.SMTP_USER ? `"Librería Adrián" <${process.env.SMTP_USER}>` : '"Librería Adrián" <facturas@libreria-adrian.test>'),
     to: para,
     subject: asunto,
     text: texto,

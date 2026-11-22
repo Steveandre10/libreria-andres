@@ -201,7 +201,7 @@ const avisarPorCorreo = (idNotificacion, mensaje) => {
       const { enviarCorreo } = await import('../services/correo.js');
       await enviarCorreo({
         para,
-        asunto: 'Librería Andrés · Stock bajo',
+        asunto: 'Librería Adrián · Stock bajo',
         texto: `${mensaje}\n\nRevisa el inventario en el panel de administración.`,
         html: `<p>${mensaje.replace(/</g, '&lt;')}</p><p>Revisa el inventario en el panel de administración.</p>`
       });

@@ -162,7 +162,7 @@ const htmlFactura = (f) => {
     </tr>`).join('');
   return `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1b2233">
-    <h2 style="margin:0;color:#1c2b4a">Librería Andrés</h2>
+    <h2 style="margin:0;color:#1c2b4a">Librería Adrián</h2>
     <p style="margin:2px 0 16px;color:#636c7e">Factura de venta ${h(numero)} · Pedido N.º ${String(f.id_pedido).padStart(4, '0')}</p>
     <p>Te compartieron esta factura de <b>${h(f.cliente || 'un cliente')}</b>, emitida el
        ${new Date(f.fecha_registro || f.fecha_emision).toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'short' })}.</p>
@@ -182,7 +182,7 @@ const htmlFactura = (f) => {
     ${f.estado_dian === 'Aceptada'
       ? `<p style="font-size:12px;color:#26623f">Factura electrónica validada. CUFE: <span style="font-family:monospace;word-break:break-all">${h(f.cufe)}</span></p>`
       : ''}
-    <p style="font-size:12px;color:#636c7e;margin-top:24px">Los libros están excluidos de IVA en Colombia (Ley 98 de 1993). Correo enviado desde Librería Andrés.</p>
+    <p style="font-size:12px;color:#636c7e;margin-top:24px">Los libros están excluidos de IVA en Colombia (Ley 98 de 1993). Correo enviado desde Librería Adrián.</p>
   </div>`;
 };
 
@@ -207,9 +207,9 @@ router.post('/:id/enviar-correo', verificarToken, async (req, res) => {
     const numero = factura.numero_fe || `N.º ${String(factura.id_factura).padStart(4, '0')}`;
     const resultado = await enviarCorreo({
       para: correo,
-      asunto: `Factura ${numero} · Librería Andrés`,
+      asunto: `Factura ${numero} · Librería Adrián`,
       html: htmlFactura(factura),
-      texto: `Factura ${numero} de Librería Andrés. Total: ${dinero(factura.total)}.`
+      texto: `Factura ${numero} de Librería Adrián. Total: ${dinero(factura.total)}.`
     });
     enviosRecientes.set(factura.id_factura, [...recientes, ahora]);
 

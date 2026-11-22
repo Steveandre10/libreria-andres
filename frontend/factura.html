@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Factura · Librería Andrés</title>
+  <title>Factura · Librería Adrián</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
@@ -96,12 +96,12 @@
         const anulada = f.estado_pedido === 'Devuelto';
 
         // El título es el nombre sugerido del PDF al guardarlo
-        document.title = `Factura ${numero.replace('N.º ', '')} · Librería Andrés`;
+        document.title = `Factura ${numero.replace('N.º ', '')} · Librería Adrián`;
 
         caja.innerHTML = `
           ${anulada ? '<div class="sello-anulada">ANULADA · DEVUELTO</div>' : ''}
           <header class="factura-cabecera">
-            <div class="factura-marca"><strong>Librería Andrés</strong><span>Cultivando el saber literario</span></div>
+            <div class="factura-marca"><strong>Librería Adrián</strong><span>Cultivando el saber literario</span></div>
             <div class="factura-numero">
               <h1>${f.estado_dian === 'Aceptada' ? 'Factura electrónica de venta' : 'Factura de venta'} ${f.numero_fe ? esc(f.numero_fe) : numero}</h1>
               <div>Pedido ${window.numeroRegistro(f.id_pedido)}</div>
@@ -154,7 +154,7 @@
 
           <footer class="factura-pie">
             ${anulada ? '<b>Esta factura quedó anulada porque el pedido fue devuelto.</b><br>' : ''}
-            Los libros están excluidos de IVA en Colombia (Ley 98 de 1993). Documento generado por Librería Andrés.
+            Los libros están excluidos de IVA en Colombia (Ley 98 de 1993). Documento generado por Librería Adrián.
           </footer>`;
 
         // RF5: dibuja el QR con el texto de validación (estructura de la DIAN)

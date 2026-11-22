@@ -1,6 +1,6 @@
 /**
  * @file admin.js
- * @description Administración de Librería Andrés (personal interno, según los permisos de su rol · RF18).
+ * @description Administración de Librería Adrián (personal interno, según los permisos de su rol · RF18).
  * Secciones por hash: #resumen, #libros, #libros/nuevo, #libros/:id, #inventario, #usuarios, #usuarios/nuevo, #resenas, #roles, #roles/nuevo, #roles/:clave
  */
 
@@ -2275,7 +2275,7 @@ function vistaReportes(root, param) {
         </div>
       </form>
 
-      <p class="reporte-titulo-impreso">Librería Andrés · ${esc(rep.pestana.nombre)} · <span id="rep-rango"></span></p>
+      <p class="reporte-titulo-impreso">Librería Adrián · ${esc(rep.pestana.nombre)} · <span id="rep-rango"></span></p>
       <div id="rep-cuerpo"><p class="list-empty">Generando reporte…</p></div>
     </section>`;
 
@@ -2574,7 +2574,7 @@ function exportarExcel() {
     const v = t.replace(/\s+/g, ' ').trim();
     return /[";\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   };
-  const lineas = [`Librería Andrés;${rep.pestana.nombre};${document.getElementById('rep-rango').textContent}`, ''];
+  const lineas = [`Librería Adrián;${rep.pestana.nombre};${document.getElementById('rep-rango').textContent}`, ''];
   tablas.forEach(tabla => {
     const titulo = tabla.closest('section, .table-wrap')?.previousElementSibling?.textContent
       || tabla.closest('section')?.querySelector('h2')?.textContent || '';

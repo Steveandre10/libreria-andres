@@ -169,7 +169,7 @@
     if (page.startsWith('admin')) {
       const seccion = page.split(':')[1] || 'resumen';
       html = `
-        <a class="rail-brand" href="admin.html#resumen"><strong>Librería Andrés</strong><span>Administración</span></a>
+        <a class="rail-brand" href="admin.html#resumen"><strong>Librería Adrián</strong><span>Administración</span></a>
         ${window.puede('resumen') ? link('admin.html#resumen', 'fa-chart-simple', 'Resumen', seccion === 'resumen') : ''}
         ${window.puede('libros') ? link('admin.html#libros', 'fa-book', 'Libros', seccion === 'libros', '<span class="count" data-count="libros" hidden></span>') : ''}
         ${window.puede('inventario') ? link('admin.html#inventario', 'fa-boxes-stacked', 'Inventario', seccion === 'inventario', '<span class="count" data-count="solicitudes" hidden></span><span class="count count-alerta" data-count="alertas" hidden></span>') : ''}
@@ -185,7 +185,7 @@
         ${link('index.html', 'fa-store', 'Ver catálogo', false)}`;
     } else {
       html = `
-        <a class="rail-brand" href="index.html"><strong>Librería Andrés</strong><span>Cultivando el saber literario</span></a>
+        <a class="rail-brand" href="index.html"><strong>Librería Adrián</strong><span>Cultivando el saber literario</span></a>
         ${link('index.html', 'fa-book-open', 'Catálogo', page === 'catalogo')}
         ${link('cart.html', 'fa-bag-shopping', 'Mi carrito', page === 'carrito', '<span class="count cart-count" hidden></span>')}
         ${link('wishlist.html', 'fa-heart', 'Lista de deseos', page === 'deseos')}

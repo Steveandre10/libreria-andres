@@ -1,7 +1,7 @@
 /**
  * @file login.js
  * @description Maneja la interfaz de usuario y la lógica de autenticación (inicio de sesión y registro de usuarios) 
- * conectándose con el backend de Librería Andrés.
+ * conectándose con el backend de Librería Adrián.
  */
 
 /**

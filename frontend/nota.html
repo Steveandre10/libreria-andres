@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nota crédito · Librería Andrés</title>
+  <title>Nota crédito · Librería Adrián</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
@@ -69,11 +69,11 @@
         const n = data.nota;
         const numero = `NC-${String(n.id_nota).padStart(4, '0')}`;
         const facturaOriginal = n.numero_fe || window.numeroRegistro(n.id_factura);
-        document.title = `Nota crédito ${numero} · Librería Andrés`;
+        document.title = `Nota crédito ${numero} · Librería Adrián`;
 
         caja.innerHTML = `
           <header class="doc-cabecera">
-            <div class="doc-marca"><strong>Librería Andrés</strong><span>Cultivando el saber literario</span></div>
+            <div class="doc-marca"><strong>Librería Adrián</strong><span>Cultivando el saber literario</span></div>
             <div class="doc-numero">
               <h1>Nota ${n.tipo === 'Débito' ? 'débito' : 'crédito'} ${numero}</h1>
               <div>${fecha(n.fecha_registro)}</div>
@@ -104,7 +104,7 @@
 
           <footer class="doc-pie">
             Esta nota ${n.tipo === 'Débito' ? 'débito aumenta' : 'crédito anula'} el valor de los libros de la factura ${esc(facturaOriginal)}.
-            Según la política de la tienda, el costo del envío no se reintegra. Documento generado automáticamente por Librería Andrés al aprobar la devolución.
+            Según la política de la tienda, el costo del envío no se reintegra. Documento generado automáticamente por Librería Adrián al aprobar la devolución.
           </footer>`;
 
         ['btn-imprimir', 'btn-pdf'].forEach(id => {

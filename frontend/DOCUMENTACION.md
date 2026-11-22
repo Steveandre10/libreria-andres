@@ -1,6 +1,6 @@
-# 📚 Documentación General del Proyecto - Librería Andrés
+# 📚 Documentación General del Proyecto - Librería Adrián
 
-Esta documentación proporciona una visión integral de la arquitectura, estructura de archivos, flujo de ejecución, base de datos y detalles de las funciones tanto para el **Backend** como para el **Frontend** del proyecto **Librería Andrés**.
+Esta documentación proporciona una visión integral de la arquitectura, estructura de archivos, flujo de ejecución, base de datos y detalles de las funciones tanto para el **Backend** como para el **Frontend** del proyecto **Librería Adrián**.
 
 ---
 
@@ -15,7 +15,7 @@ El proyecto está diseñado bajo un modelo de arquitectura **Cliente-Servidor** 
 
 ```mermaid
 graph TD
-    subgraph Frontend [Librería Andrés - Frontend]
+    subgraph Frontend [Librería Adrián - Frontend]
         UI["Vistas HTML (index, login, profile, wishlist, cart, purchases)"]
         JS["Lógica de Interfaz (login.js, script.js)"]
         Auth["auth.js (Manejador Global de Sesión)"]
@@ -26,7 +26,7 @@ graph TD
         Auth <-->|Persistencia Local| LS
     end
 
-    subgraph Backend [Librería Andrés - Backend]
+    subgraph Backend [Librería Adrián - Backend]
         Routes["Enrutador (app/routes/usuarios.routes.js)"]
         Ctrl["Controladores (app/controllers/usuarios.controller.js)"]
         Model["Modelos SQL (app/models/usuarios.model.js)"]
@@ -307,7 +307,7 @@ Sigue estos pasos para desplegar y probar toda la aplicación localmente en tu m
    node index.js
    ```
 4. Verás en la consola el mensaje: `Servidor corriendo en puerto 3000`. 
-5. Puedes probar que esté en línea entrando en tu navegador a: [http://localhost:3000/](http://localhost:3000/). Deberás obtener la respuesta `{ "message": "Servidor funcionando (Librería Andrés!)" }`.
+5. Puedes probar que esté en línea entrando en tu navegador a: [http://localhost:3000/](http://localhost:3000/). Deberás obtener la respuesta `{ "message": "Servidor funcionando (Librería Adrián!)" }`.
 
 ### Paso 3: Iniciar y Probar el Frontend
 1. Como el frontend consiste en archivos estáticos puros (`html`, `css`, `js`), puedes ejecutarlo directamente de dos formas:

@@ -38,7 +38,7 @@ INSERT INTO configuraciones (nombre_parametro, valor_parametro) VALUES
   ('fe_proveedor',     'simulador'),
   ('fe_ambiente',      '2'),                                           -- 1 = producción, 2 = pruebas
   ('fe_nit_emisor',    ''),
-  ('fe_razon_social',  'Librería Andrés'),
+  ('fe_razon_social',  'Librería Adrián'),
   ('fe_resolucion',    ''),
   ('fe_prefijo',       'SETP'),
   ('fe_clave_tecnica', 'fc8eac422eba16e22ffd8c6f94b3f40a6e38162c');

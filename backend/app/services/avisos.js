@@ -18,7 +18,7 @@ const plantilla = (titulo, cuerpoHtml) => `
   <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#1b2233">
     <h2 style="color:#1c2b4a;margin-bottom:8px">${esc(titulo)}</h2>
     ${cuerpoHtml}
-    <p style="margin-top:24px"><a href="${URL_TIENDA}" style="background:#1c2b4a;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Ir a Librería Andrés</a></p>
+    <p style="margin-top:24px"><a href="${URL_TIENDA}" style="background:#1c2b4a;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Ir a Librería Adrián</a></p>
     <p style="font-size:12px;color:#636c7e;margin-top:24px">Recibes este correo porque lo activaste en tu perfil. Puedes desactivarlo en «Mi perfil».</p>
   </div>`;
 
@@ -58,7 +58,7 @@ export const avisarReposicion = (idLibro) => {
       if (!esperando.length) return;
       await enviarATodos(esperando, (u) => ({
         asunto: `Ya llegó «${libro.titulo}»`,
-        texto: `Hola ${u.nombre}, «${libro.titulo}» volvió a estar disponible en Librería Andrés.`,
+        texto: `Hola ${u.nombre}, «${libro.titulo}» volvió a estar disponible en Librería Adrián.`,
         html: plantilla(`Ya llegó «${libro.titulo}»`, `<p>Hola ${esc(u.nombre)}, el libro que esperabas volvió a estar disponible. Hay pocas unidades, así que si lo quieres no lo dejes pasar.</p>`)
       }));
       await pool.query('UPDATE avisos_stock SET fecha_aviso = NOW() WHERE id_libro = ? AND fecha_aviso IS NULL AND id_usuario IN (?)',
@@ -77,7 +77,7 @@ export const avisarNovedad = (libro) => {
         `SELECT u.email, u.nombre FROM preferencias_notificacion p JOIN usuarios u ON u.id = p.id_usuario WHERE p.novedades = 1`
       );
       await enviarATodos(suscritos, (u) => ({
-        asunto: `Novedad en Librería Andrés: «${libro.titulo}»`,
+        asunto: `Novedad en Librería Adrián: «${libro.titulo}»`,
         texto: `Hola ${u.nombre}, llegó «${libro.titulo}» de ${libro.autor}.`,
         html: plantilla('Nuevo en el catálogo', `<p>Hola ${esc(u.nombre)}, acaba de llegar <b>«${esc(libro.titulo)}»</b> de ${esc(libro.autor)}.</p>`)
       }));

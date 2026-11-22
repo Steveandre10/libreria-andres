@@ -114,7 +114,7 @@ router.post('/:id/mensajes', verificarToken, async (req, res) => {
     if (esSoporte) {
       enviarCorreo({
         para: caso.cliente_email,
-        asunto: `Respuesta a tu caso N.º ${String(idCaso).padStart(4, '0')} · Librería Andrés`,
+        asunto: `Respuesta a tu caso N.º ${String(idCaso).padStart(4, '0')} · Librería Adrián`,
         texto: `Hola ${caso.cliente}, te respondimos:\n\n${mensaje}\n\nPuedes contestar desde "Mis compras".`,
         html: `<p>Hola ${caso.cliente},</p><p>Te respondimos sobre tu caso${caso.id_pedido ? ` del pedido N.º ${String(caso.id_pedido).padStart(4, '0')}` : ''}:</p>
                <blockquote style="border-left:3px solid #1c2b4a;padding-left:10px">${mensaje.replace(/</g, '&lt;').replace(/\n/g, '<br>')}</blockquote>
