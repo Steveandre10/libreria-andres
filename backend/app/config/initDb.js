@@ -14,6 +14,26 @@ export async function inicializarBaseDeDatos() {
       console.log('✓ Columna "rol" agregada exitosamente a la tabla usuarios.');
     }
 
+    // RF16 · Cuentas activas/desactivadas. Una cuenta con pedidos o facturas no se borra
+    // (rompería el historial): se desactiva y ya no puede iniciar sesión.
+    const [colActivo] = await pool.query("SHOW COLUMNS FROM usuarios LIKE 'activo'");
+    if (colActivo.length === 0) {
+      await pool.query('ALTER TABLE usuarios ADD COLUMN activo TINYINT(1) NOT NULL DEFAULT 1');
+      console.log('✓ RF16: columna "activo" agregada a la tabla usuarios.');
+    }
+
+    // RF16 · La base de datos tampoco permite dos cuentas con el mismo correo.
+    const [idxEmail] = await pool.query("SHOW INDEX FROM usuarios WHERE Column_name = 'email' AND Non_unique = 0");
+    if (idxEmail.length === 0) {
+      const [repetidos] = await pool.query('SELECT email FROM usuarios GROUP BY email HAVING COUNT(*) > 1');
+      if (repetidos.length === 0) {
+        await pool.query('ALTER TABLE usuarios ADD UNIQUE KEY uq_usuarios_email (email)');
+        console.log('✓ RF16: el correo de los usuarios ahora es único en la base de datos.');
+      } else {
+        console.warn(`RF16: hay correos repetidos (${repetidos.map(r => r.email).join(', ')}); no se pudo crear la regla UNIQUE.`);
+      }
+    }
+
     // 2. Crear tabla libros si no existe
     await pool.query(`
       CREATE TABLE IF NOT EXISTS libros (

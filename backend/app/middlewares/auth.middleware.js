@@ -6,7 +6,7 @@ import { getPermisosDeRol } from '../models/roles.model.js';
 /**
  * Middleware para verificar si el usuario envía un token JWT válido
  */
-export const verificarToken = (req, res, next) => {
+export const verificarToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -14,13 +14,24 @@ export const verificarToken = (req, res, next) => {
     return res.status(401).json({ error: 'Acceso no autorizado: Token no proporcionado' });
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET);
-    req.usuario = decoded;
-    next();
+    decoded = jwt.verify(token, config.JWT_SECRET);
   } catch (error) {
     return res.status(403).json({ error: 'Token inválido o expirado' });
   }
+
+  // RF16: si el administrador eliminó o desactivó la cuenta, su sesión deja de servir
+  // de inmediato (sin esperar a que venza el token de 24 h). 401 hace que la página cierre la sesión.
+  try {
+    const [rows] = await pool.query('SELECT activo FROM usuarios WHERE id = ?', [decoded.id]);
+    if (!rows.length) return res.status(401).json({ error: 'La cuenta ya no existe' });
+    if (rows[0].activo === 0) return res.status(401).json({ error: 'Esta cuenta está desactivada' });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+  req.usuario = decoded;
+  next();
 };
 
 /**

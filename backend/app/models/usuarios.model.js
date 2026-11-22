@@ -51,12 +51,38 @@ export const getUsuarioByEmail = async (email) => {
  * @returns {Promise<Object>} Datos del usuario registrado con su insertId asignado.
  */
 export const crearUsuario = async (usuario) => {
-  const { nombre, email, password, rol = 'usuario' } = usuario;
+  // RF16: también guarda cédula y dirección (antes el formulario las pedía pero se perdían)
+  const { nombre, email, password, rol = 'usuario', cedula = null, direccion = null } = usuario;
   const [result] = await pool.query(
-    'INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)',
-    [nombre, email, password, rol]
+    'INSERT INTO usuarios (nombre, email, password, rol, cedula, direccion) VALUES (?, ?, ?, ?, ?, ?)',
+    [nombre, email, password, rol, cedula || null, direccion || null]
   );
   return { id: result.insertId, nombre, email, rol };
+};
+
+/**
+ * RF16 · Actualiza los datos de una cuenta. Solo toca los campos que llegan.
+ * @param {number|string} id
+ * @param {{nombre?:string, email?:string, cedula?:string|null, direccion?:string|null, password?:string, rol?:string, activo?:boolean}} campos
+ *   `password` debe llegar ya cifrada con bcrypt.
+ */
+export const actualizarUsuario = async (id, campos) => {
+  const permitidos = ['nombre', 'email', 'cedula', 'direccion', 'password', 'rol', 'activo'];
+  const sets = [];
+  const valores = [];
+  for (const campo of permitidos) {
+    if (campos[campo] !== undefined) {
+      sets.push(`${campo} = ?`);          // el nombre de columna sale de la lista fija, nunca del usuario
+      valores.push(campo === 'activo' ? (campos.activo ? 1 : 0) : campos[campo]);
+    }
+  }
+  if (!sets.length) return;
+  await pool.query(`UPDATE usuarios SET ${sets.join(', ')} WHERE id = ?`, [...valores, id]);
+};
+
+/** RF16 · Desactiva una cuenta (no puede iniciar sesión, pero su historial se conserva). */
+export const desactivarUsuario = async (id) => {
+  await pool.query('UPDATE usuarios SET activo = 0 WHERE id = ?', [id]);
 };
 
 /**

@@ -5,7 +5,9 @@ import {
   eliminarUsuario as eliminarUsuarioModel,
   getUsuarioByEmail,
   updatePasswordModel,
-  cambiarRolUsuario
+  cambiarRolUsuario,
+  actualizarUsuario as actualizarUsuarioModel,
+  desactivarUsuario
 } from '../models/usuarios.model.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -75,6 +77,15 @@ export const crearUsuario = async (req, res) => {
     if (!usuario || !usuario.nombre || !usuario.email || !usuario.password) {
       return res.status(400).json({ error: 'Faltan datos: nombre, email y password son requeridos' });
     }
+    // RF16: datos básicos válidos antes de tocar la base de datos
+    usuario.nombre = String(usuario.nombre).trim().slice(0, 100);
+    usuario.email = String(usuario.email).trim().toLowerCase();
+    if (!CORREO_VALIDO.test(usuario.email)) {
+      return res.status(400).json({ error: 'El correo electrónico no es válido' });
+    }
+    if (String(usuario.password).length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
 
     // Comprobar si el correo ya existe
     const existente = await getUsuarioByEmail(usuario.email);
@@ -123,6 +134,84 @@ export const crearUsuario = async (req, res) => {
 
     res.status(201).json(newUser);
   } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: mensajeDuplicado(error) });
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/** RF16 · Formato básico de correo (algo@algo.algo). */
+const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** RF16 · Traduce el error de la regla UNIQUE de MySQL a un mensaje claro. */
+const mensajeDuplicado = (error) => (/cedula/i.test(error.message)
+  ? 'Ya existe una cuenta con esa cédula'
+  : 'El correo electrónico ya está registrado');
+
+/**
+ * RF16 · Reglas comunes antes de editar o eliminar una cuenta.
+ * Devuelve { error, status } si no se puede, o { destino } con la fila del usuario.
+ */
+const validarCuentaAjena = async (req, id, accion) => {
+  const [destino] = await getUsuarioById(id);
+  if (!destino) return { status: 404, error: 'Usuario no encontrado' };
+  if (destino.rol === 'admin' && req.usuario.rol !== 'admin') {
+    return { status: 403, error: `Solo un administrador puede ${accion} la cuenta de un administrador` };
+  }
+  return { destino };
+};
+
+/**
+ * PUT /api/usuarios/:id · RF16: el personal con permiso edita los datos de una cuenta.
+ * Campos opcionales: nombre, email, cedula, direccion, password (nueva), rol, activo.
+ * - No se repite el correo de otra cuenta.
+ * - Nadie se cambia su propio rol ni se desactiva a sí mismo (evita quedarse sin acceso).
+ * - Solo un administrador puede editar administradores o dar el rol de administrador.
+ */
+export const actualizarUsuario = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { destino, error, status } = await validarCuentaAjena(req, id, 'editar');
+    if (error) return res.status(status).json({ error });
+
+    const b = req.body || {};
+    const cambios = {};
+    const esYo = id === req.usuario.id;
+
+    if (b.nombre !== undefined) {
+      cambios.nombre = String(b.nombre).trim().slice(0, 100);
+      if (!cambios.nombre) return res.status(400).json({ error: 'El nombre no puede quedar vacío' });
+    }
+    if (b.email !== undefined) {
+      cambios.email = String(b.email).trim().toLowerCase();
+      if (!CORREO_VALIDO.test(cambios.email)) return res.status(400).json({ error: 'El correo electrónico no es válido' });
+      const [otro] = await getUsuarioByEmail(cambios.email);
+      if (otro && otro.id !== id) return res.status(409).json({ error: 'El correo electrónico ya está registrado en otra cuenta' });
+    }
+    if (b.cedula !== undefined) cambios.cedula = String(b.cedula || '').trim().slice(0, 100) || null;
+    if (b.direccion !== undefined) cambios.direccion = String(b.direccion || '').trim().slice(0, 100) || null;
+    if (b.password) {
+      if (String(b.password).length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+      cambios.password = await bcrypt.hash(String(b.password), await bcrypt.genSalt(10));
+    }
+    if (b.rol !== undefined && b.rol !== destino.rol) {
+      if (esYo) return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
+      if (!(await getRolPorClave(b.rol))) return res.status(400).json({ error: 'Ese rol no existe' });
+      if (b.rol === 'admin' && req.usuario.rol !== 'admin') {
+        return res.status(403).json({ error: 'Solo un administrador puede dar el rol de administrador' });
+      }
+      cambios.rol = b.rol;
+    }
+    if (b.activo !== undefined) {
+      if (esYo && !b.activo) return res.status(400).json({ error: 'No puedes desactivar tu propia cuenta' });
+      cambios.activo = Boolean(b.activo);
+    }
+
+    await actualizarUsuarioModel(id, cambios);
+    const [actualizado] = await getUsuarioById(id);
+    const { password, ...seguro } = actualizado;
+    res.json({ message: 'Cuenta actualizada', usuario: seguro });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: mensajeDuplicado(error) });
     res.status(500).json({ error: error.message });
   }
 };
@@ -139,9 +228,27 @@ export const crearUsuario = async (req, res) => {
  */
 export const eliminarUsuario = async (req, res) => {
   try {
-    const { id } = req.params;
-    await eliminarUsuarioModel(id);
-    res.json({ message: 'Usuario eliminado correctamente' });
+    const id = Number(req.params.id);
+    // RF16: nadie borra su propia cuenta desde el panel (se quedaría sin acceso a mitad de la sesión)
+    if (id === req.usuario.id) return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
+    const { error, status } = await validarCuentaAjena(req, id, 'eliminar');
+    if (error) return res.status(status).json({ error });
+
+    try {
+      await eliminarUsuarioModel(id);
+      return res.json({ message: 'Usuario eliminado correctamente', eliminado: true });
+    } catch (errorBorrado) {
+      // RF16: si tiene pedidos, facturas u otro historial, la base no deja borrarlo (llaves foráneas).
+      // En ese caso se DESACTIVA: no puede iniciar sesión, pero su historial contable se conserva.
+      if (errorBorrado.code === 'ER_ROW_IS_REFERENCED_2' || errorBorrado.code === 'ER_ROW_IS_REFERENCED') {
+        await desactivarUsuario(id);
+        return res.json({
+          message: 'La cuenta tiene pedidos o facturas, así que se desactivó para conservar el historial',
+          desactivado: true
+        });
+      }
+      throw errorBorrado;
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -228,6 +335,10 @@ export const loginUsuario = async (req, res) => {
 
     if (!isMatch) {
       return res.status(401).json({ error: 'Credenciales inválidas (contraseña incorrecta)' });
+    }
+    // RF16: una cuenta desactivada por el administrador no puede entrar
+    if (usuario.activo === 0) {
+      return res.status(403).json({ error: 'Esta cuenta está desactivada. Comunícate con la librería.' });
     }
     
     // Generar token JWT con rol incluido

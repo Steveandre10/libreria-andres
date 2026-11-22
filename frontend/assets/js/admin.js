@@ -524,13 +524,16 @@ function vistaUsuarios(root, param) {
   if (!estado.cargado.usuarios) { root.innerHTML = errorConexion('los usuarios'); return; }
   const yo = window.getCurrentUser();
   const admins = estado.usuarios.filter(u => u.rol === 'admin').length;
-  const abierto = param === 'nuevo';
+  // RF16: #usuarios/nuevo abre el alta; #usuarios/<id> abre la edición de esa cuenta
+  const editando = param && param !== 'nuevo' ? estado.usuarios.find(u => u.id === Number(param)) : null;
+  const abierto = param === 'nuevo' || Boolean(editando);
+  const desactivadas = estado.usuarios.filter(u => u.activo === 0).length;
 
   root.innerHTML = `
     <section class="admin-section workspace">
       <div>
         <header class="page-head">
-          <div><h1>Usuarios</h1><p>${estado.usuarios.length} cuentas · ${admins} ${admins === 1 ? 'administrador' : 'administradores'}</p></div>
+          <div><h1>Usuarios</h1><p>${estado.usuarios.length} cuentas · ${admins} ${admins === 1 ? 'administrador' : 'administradores'}${desactivadas ? ` · ${desactivadas} desactivada${desactivadas === 1 ? '' : 's'}` : ''}</p></div>
           <div class="actions"><a class="btn btn-primary" href="admin.html#usuarios/nuevo" data-requiere="usuarios:editar"><i class="fas fa-user-plus" aria-hidden="true"></i> Nuevo usuario</a></div>
         </header>
         <div class="toolbar">
@@ -539,13 +542,13 @@ function vistaUsuarios(root, param) {
         </div>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Registro</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Registro</th><th><span class="sr-only">Acciones</span></th></tr></thead>
             <tbody id="usuarios-tbody"></tbody>
           </table>
         </div>
       </div>
       <aside class="workspace-side ${abierto ? '' : 'is-empty'}" id="usuario-side">
-        ${abierto ? fichaUsuario() : `
+        ${abierto ? fichaUsuario(editando) : `
           <div class="ficha">
             <div class="ficha-head"><div class="ficha-call"><span>Cuentas</span><span>Roles</span></div><h2>Usuarios por rol</h2></div>
             <div class="ficha-body">
@@ -578,10 +581,14 @@ function vistaUsuarios(root, param) {
               ${opcionesRol(u.rol)}
             </select>
           </td>
+          <td>${u.activo === 0 ? '<span class="status status-out">Desactivada</span>' : '<span class="status status-ok">Activa</span>'}</td>
           <td class="mono">${fecha(u.fecha_registro)}</td>
-          <td><div class="row-actions">${esYo ? '' : `<button type="button" class="icon-btn danger" data-requiere="usuarios:editar" onclick="eliminarUsuario(${u.id})" aria-label="Eliminar a ${esc(u.nombre)}" title="Eliminar"><i class="fas fa-trash-can"></i></button>`}</div></td>
+          <td><div class="row-actions">
+            <a class="icon-btn" href="admin.html#usuarios/${u.id}" data-requiere="usuarios:editar" aria-label="Editar a ${esc(u.nombre)}" title="Editar"><i class="fas fa-pen"></i></a>
+            ${esYo ? '' : `<button type="button" class="icon-btn danger" data-requiere="usuarios:editar" onclick="eliminarUsuario(${u.id})" aria-label="Eliminar a ${esc(u.nombre)}" title="Eliminar"><i class="fas fa-trash-can"></i></button>`}
+          </div></td>
         </tr>`;
-    }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:28px"><p>Ningún usuario coincide.</p></div></td></tr>';
+    }).join('') : '<tr><td colspan="6"><div class="empty" style="padding:28px"><p>Ningún usuario coincide.</p></div></td></tr>';
     aplicarPermisos(document.getElementById('usuarios-tbody')); // RF18
   };
   pintar();
@@ -589,35 +596,47 @@ function vistaUsuarios(root, param) {
 
   const side = document.getElementById('usuario-side');
   side.addEventListener('click', (e) => { if (e.target === side) location.hash = 'usuarios'; });
-  if (abierto) conectarFormUsuario();
+  if (abierto) conectarFormUsuario(editando);
 }
 
-function fichaUsuario() {
+/**
+ * RF16 · Ficha para crear (sin `u`) o editar (con `u`) una cuenta.
+ * Al editar, la contraseña es opcional: si se deja vacía, no cambia.
+ */
+function fichaUsuario(u = null) {
+  const yo = window.getCurrentUser();
+  const esYo = u && yo && yo.id === u.id;
+  const v = (campo) => (u && u[campo] ? esc(u[campo]) : '');
   return `
     <form class="ficha" id="form-usuario">
       <div class="ficha-head">
-        <div class="ficha-call"><span>N.º nueva</span><span>Alta de cuenta</span></div>
-        <h2>Nuevo usuario</h2><p>La persona podrá entrar con este correo y contraseña.</p>
+        <div class="ficha-call"><span>${u ? window.numeroRegistro(u.id) : 'N.º nueva'}</span><span>${u ? 'Edición de cuenta' : 'Alta de cuenta'}</span></div>
+        <h2>${u ? esc(u.nombre) : 'Nuevo usuario'}</h2>
+        <p>${u ? esc(u.email) : 'La persona podrá entrar con este correo y contraseña.'}</p>
         <a class="icon-btn sheet-close" href="admin.html#usuarios" aria-label="Cerrar"><i class="fas fa-xmark"></i></a>
       </div>
       <div class="ficha-body">
         <div class="form-grid">
-          <label class="field full"><span class="field-label">Nombre completo *</span><input class="input" name="nombre" required autocomplete="off" /></label>
-          <label class="field full"><span class="field-label">Correo *</span><input class="input" name="email" type="email" required autocomplete="off" /></label>
-          <label class="field full"><span class="field-label">Contraseña inicial *</span><input class="input" name="password" type="password" required minlength="6" autocomplete="new-password" /><span class="field-hint">Mínimo 6 caracteres. Pídele que la cambie al entrar.</span></label>
-          <label class="field full"><span class="field-label">Rol</span><select class="select" name="rol">${opcionesRol('usuario', true)}</select></label>
-          <label class="field"><span class="field-label">Teléfono</span><input class="input" name="telefono" type="tel" /></label>
-          <label class="field"><span class="field-label">Dirección</span><input class="input" name="direccion" /></label>
+          <label class="field full"><span class="field-label">Nombre completo *</span><input class="input" name="nombre" required maxlength="100" autocomplete="off" value="${v('nombre')}" /></label>
+          <label class="field full"><span class="field-label">Correo *</span><input class="input" name="email" type="email" required maxlength="150" autocomplete="off" value="${v('email')}" /><span class="field-hint">No puede repetirse con otra cuenta.</span></label>
+          <label class="field full"><span class="field-label">${u ? 'Nueva contraseña' : 'Contraseña inicial *'}</span><input class="input" name="password" type="password" ${u ? '' : 'required'} minlength="6" autocomplete="new-password" /><span class="field-hint">${u ? 'Déjala vacía para no cambiarla. ' : ''}Mínimo 6 caracteres.</span></label>
+          <label class="field full"><span class="field-label">Rol</span><select class="select" name="rol" ${esYo ? 'disabled title="No puedes cambiar tu propio rol"' : ''}>${opcionesRol(u ? u.rol : 'usuario', true)}</select></label>
+          <label class="field"><span class="field-label">Cédula</span><input class="input" name="cedula" maxlength="100" value="${v('cedula')}" /></label>
+          <label class="field"><span class="field-label">Dirección</span><input class="input" name="direccion" maxlength="100" value="${v('direccion')}" /></label>
+          ${u ? `<label class="field full" style="flex-direction:row; align-items:center; gap:8px">
+            <input type="checkbox" name="activo" ${u.activo === 0 ? '' : 'checked'} ${esYo ? 'disabled' : ''} />
+            <span>Cuenta activa <span class="field-hint">(si la desactivas, no podrá iniciar sesión)</span></span></label>` : ''}
         </div>
         <div class="ficha-actions">
-          <button type="submit" class="btn btn-primary">Crear usuario</button>
+          <button type="submit" class="btn btn-primary">${u ? 'Guardar cambios' : 'Crear usuario'}</button>
           <a class="btn btn-secondary" href="admin.html#usuarios">Cancelar</a>
         </div>
       </div>
     </form>`;
 }
 
-function conectarFormUsuario() {
+/** RF16 · Envía la ficha: POST para crear, PUT para editar. */
+function conectarFormUsuario(u = null) {
   const form = document.getElementById('form-usuario');
   form.nombre.focus({ preventScroll: true });
   form.addEventListener('submit', async (e) => {
@@ -626,18 +645,21 @@ function conectarFormUsuario() {
     const datos = {
       nombre: form.nombre.value.trim(),
       email: form.email.value.trim(),
-      password: form.password.value,
-      rol: form.rol.value,
-      telefono: form.telefono.value.trim() || null,
+      cedula: form.cedula.value.trim() || null,
       direccion: form.direccion.value.trim() || null
     };
+    if (form.password.value) datos.password = form.password.value;
+    if (!form.rol.disabled) datos.rol = form.rol.value;
+    if (u && form.activo && !form.activo.disabled) datos.activo = form.activo.checked;
+
     const btn = form.querySelector('[type="submit"]');
     btn.disabled = true;
     try {
-      const res = await window.fetchAPI('/api/usuarios', { method: 'POST', body: JSON.stringify(datos) });
-      if (!res.ok) throw await leerError(res, 'No se pudo crear el usuario');
-      await cargarUsuarios();
-      window.showToast(`Creaste la cuenta de ${datos.nombre}.`);
+      const res = await window.fetchAPI(u ? `/api/usuarios/${u.id}` : '/api/usuarios',
+        { method: u ? 'PUT' : 'POST', body: JSON.stringify(datos) });
+      if (!res.ok) throw await leerError(res, u ? 'No se pudieron guardar los cambios' : 'No se pudo crear el usuario');
+      await Promise.all([cargarUsuarios(), cargarRoles()]);
+      window.showToast(u ? `Guardaste los cambios de ${datos.nombre}.` : `Creaste la cuenta de ${datos.nombre}.`);
       location.hash = 'usuarios';
     } catch (err) {
       window.showToast(err.message, 'error');
@@ -677,7 +699,8 @@ window.eliminarUsuario = async function(id) {
   if (!u) return;
   const ok = await window.confirmar({
     titulo: `¿Eliminar la cuenta de ${u.nombre}?`,
-    mensaje: `${u.email} ya no podrá iniciar sesión. Esta acción no se puede deshacer.`,
+    // RF16: si tiene pedidos o facturas no se borra, se desactiva (el servidor decide)
+    mensaje: `${u.email} ya no podrá iniciar sesión. Si la cuenta tiene pedidos o facturas, se desactiva en lugar de borrarse para conservar el historial.`,
     confirmar: 'Eliminar cuenta',
     peligro: true
   });
@@ -685,8 +708,15 @@ window.eliminarUsuario = async function(id) {
   try {
     const res = await window.fetchAPI(`/api/usuarios/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await leerError(res, 'No se pudo eliminar el usuario');
-    estado.usuarios = estado.usuarios.filter(x => x.id !== id);
-    window.showToast(`Eliminaste la cuenta de ${u.nombre}.`);
+    const r = await res.json();
+    if (r.desactivado) {
+      u.activo = 0;
+      window.showToast(`${u.nombre} tiene pedidos o facturas: su cuenta quedó desactivada.`);
+    } else {
+      estado.usuarios = estado.usuarios.filter(x => x.id !== id);
+      window.showToast(`Eliminaste la cuenta de ${u.nombre}.`);
+    }
+    await cargarRoles();
     enrutar();
   } catch (e) {
     window.showToast(e.message, 'error');

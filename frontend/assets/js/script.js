@@ -421,7 +421,8 @@ async function cargarDatosPerfil(userId) {
   };
 
   try {
-    const response = await fetch(`${window.API_BASE}/api/usuarios/${userId}`);
+    // RF16: la ficha de un usuario ya no es pública; se pide con el token de la sesión
+    const response = await window.fetchAPI(`/api/usuarios/${userId}`);
     if (!response.ok) throw new Error('Error al consultar el perfil');
     const { usuario } = await response.json();
     const registro = usuario.fecha_registro
