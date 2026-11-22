@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';                                   // Seguridad: cabeceras HTTP (OWASP)
 import routeUsuario from './app/routes/usuarios.routes.js';
 import routeLibros from './app/routes/libros.routes.js';
 import routeResenas from './app/routes/resenas.routes.js';
@@ -43,14 +44,34 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configuración flexible de CORS para permitir Render y cualquier puerto de localhost durante desarrollo
+/**
+ * Seguridad · Cabeceras HTTP con Helmet (guía OWASP).
+ * Agrega cabeceras que le dicen al navegador cómo protegerse, por ejemplo:
+ *  - X-Content-Type-Options: nosniff  -> no "adivina" el tipo de archivo (evita ejecutar texto como script)
+ *  - X-Frame-Options / frame-ancestors -> nadie puede meter la API dentro de un iframe (clickjacking)
+ *  - Content-Security-Policy           -> limita de dónde se pueden cargar scripts y recursos
+ *  - Quita X-Powered-By                -> no se anuncia que el servidor es Express
+ * HSTS se deja apagado aquí porque ya lo envía el middleware de arriba (RF23) solo cuando hay HTTPS.
+ * crossOriginResourcePolicy 'cross-origin': la tienda (otro dominio) sí puede usar las respuestas de la API.
+ */
+app.use(helmet({
+  strictTransportSecurity: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
+/**
+ * Seguridad · CORS restringido.
+ * La API solo responde a páginas de la propia tienda: el sitio en Render y localhost (desarrollo).
+ * Peticiones sin cabecera Origin (Postman, curl, el propio servidor) se permiten porque no vienen de un navegador.
+ * Cualquier otro sitio web no recibe permiso CORS y el navegador bloquea la respuesta.
+ */
+const ORIGENES_PERMITIDOS = ['https://libreria-andres.onrender.com'];
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || origin === 'https://libreria-andres.onrender.com') {
-      callback(null, true);
-    } else {
-      callback(null, true); // Permisivo para pruebas
-    }
+    const permitido = !origin
+      || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      || ORIGENES_PERMITIDOS.includes(origin);
+    callback(null, permitido);
   },
   credentials: true
 }));
