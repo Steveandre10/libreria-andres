@@ -26,9 +26,30 @@ const pool = mysql.createPool({
  * Sin ninguna de las dos (XAMPP local), se conecta sin SSL.
  */
 function certificadoSSL() {
-  if (process.env.DB_SSL_CA) return { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n') };
+  if (process.env.DB_SSL_CA) {
+    const ca = normalizarPEM(process.env.DB_SSL_CA);
+    if (!ca) {
+      console.error('SSL: DB_SSL_CA no parece un certificado (debe empezar con -----BEGIN CERTIFICATE-----).');
+      return undefined;
+    }
+    console.log(`SSL: certificado CA cargado desde DB_SSL_CA (${ca.match(/BEGIN CERTIFICATE/g).length} certificado/s).`);
+    return { ca };
+  }
   if (process.env.DB_CA_PATH) return { ca: fs.readFileSync(process.env.DB_CA_PATH) };
   return undefined;
+}
+
+/**
+ * Repara el certificado si al pegarlo en Render los saltos de línea se volvieron espacios o "\n".
+ * Un PEM válido es: -----BEGIN CERTIFICATE----- / líneas de 64 caracteres en base64 / -----END CERTIFICATE-----
+ */
+function normalizarPEM(texto) {
+  const bloques = [...String(texto).replace(/\\n/g, '\n').matchAll(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/g)];
+  if (!bloques.length) return null;
+  return bloques.map(([, cuerpo]) => {
+    const base64 = cuerpo.replace(/[^A-Za-z0-9+/=]/g, '');   // quita espacios y saltos
+    return `-----BEGIN CERTIFICATE-----\n${base64.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
+  }).join('');
 }
 
 export default pool;
